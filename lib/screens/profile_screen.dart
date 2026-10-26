@@ -8,7 +8,6 @@ import '../app/theme.dart';
 import '../widgets/common.dart';
 import 'change_password_screen.dart';
 import 'instructions_screen.dart';
-import 'services/services_web_screen.dart';
 
 const appVersion = '3.0.3';
 
@@ -138,15 +137,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         AppCard(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Column(children: [
-            _MenuItem(
-              icon: Icons.badge_outlined,
-              tone: Tone.blue,
-              title: 'معلوماتي الوظيفية',
-              // صفحة «معلوماتي» على خادم الشركة، كما في التطبيق الأصلي.
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const ServicesWebScreen(title: 'معلوماتي الوظيفية', serviceName: 'معلوماتي'),
-              )),
-            ),
             _MenuItem(
               icon: Icons.lock_outline_rounded,
               tone: Tone.accent,

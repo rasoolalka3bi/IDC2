@@ -9,6 +9,7 @@ import 'app/theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/shell.dart';
 import 'screens/splash.dart';
+import 'services/web_scraper.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,7 +42,7 @@ class IdcApp extends StatelessWidget {
         final dark = Theme.of(context).brightness == Brightness.dark;
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark).copyWith(statusBarColor: Colors.transparent),
-          child: child!,
+          child: WebScraperHost(child: child!),
         );
       },
       home: AnimatedSwitcher(

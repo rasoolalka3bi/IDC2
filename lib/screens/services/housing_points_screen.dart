@@ -7,6 +7,7 @@ import '../../app/app_state.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../widgets/common.dart';
+import 'services_web_screen.dart';
 
 class HousingPointsScreen extends StatelessWidget {
   const HousingPointsScreen({super.key});
@@ -16,7 +17,7 @@ class HousingPointsScreen extends StatelessWidget {
     final c = context.colors;
     final repo = context.read<AppState>().repo;
     return Scaffold(
-      appBar: AppBar(title: const Text('نقاط الإسكان')),
+      appBar: AppBar(title: const Text('نقاط الإسكان'), actions: const [OriginalPageButton('نقاطي'), SizedBox(width: 8)]),
       body: AsyncBody<HousingPoints>(
         load: repo.housingPoints,
         builder: (context, p, reload) {
@@ -31,7 +32,7 @@ class HousingPointsScreen extends StatelessWidget {
                     width: 112,
                     height: 112,
                     child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: p.total / p.max),
+                      tween: Tween(begin: 0, end: p.max == null ? 1.0 : p.total / p.max!),
                       duration: const Duration(milliseconds: 1000),
                       curve: Curves.easeOutCubic,
                       builder: (context, v, _) => CustomPaint(
@@ -45,7 +46,8 @@ class HousingPointsScreen extends StatelessWidget {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('مجموع النقاط', style: TextStyle(color: c.ink3, fontSize: 12.5)),
                       const SizedBox(height: 4),
-                      Text('من أصل ${p.max} نقطة', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      Text(p.max == null ? '${p.total} نقطة' : 'من أصل ${p.max} نقطة',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                       const SizedBox(height: 10),
                       if (p.fileClosed) const Pill('ملف الإسكان مغلق', tone: Tone.gold),
                     ]),

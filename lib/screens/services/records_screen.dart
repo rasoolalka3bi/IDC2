@@ -6,6 +6,7 @@ import '../../app/format.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../widgets/common.dart';
+import 'services_web_screen.dart';
 
 /// سجلي الوظيفي: الدورات وكتب الشكر.
 class RecordsScreen extends StatelessWidget {
@@ -22,6 +23,16 @@ class RecordsScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('سجلي الوظيفي'),
+          actions: [
+            Builder(builder: (context) {
+              final tabs = DefaultTabController.of(context);
+              return AnimatedBuilder(
+                animation: tabs,
+                builder: (context, _) => OriginalPageButton(tabs.index == 0 ? 'الدورات' : 'التشكرات'),
+              );
+            }),
+            const SizedBox(width: 8),
+          ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(56),
             child: Container(

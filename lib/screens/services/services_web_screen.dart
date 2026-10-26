@@ -5,6 +5,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../app/app_state.dart';
 import '../../app/theme.dart';
+import '../../services/web_scraper.dart';
 import '../../widgets/common.dart';
 
 /// يعرض صفحة خدمات الموظف من خادم الشركة داخل التطبيق، مع تنسيق
@@ -41,6 +42,7 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
     if (state.isDemo) return;
     final c = context.colors;
     final css = _css(c);
+    final dark = Theme.of(context).brightness == Brightness.dark;
     _web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(c.bg)
@@ -57,6 +59,7 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
           await _web?.runJavaScript(
             "(function(){var s=document.createElement('style');s.innerHTML=${_jsString(css)};document.head.appendChild(s);})();",
           );
+          if (dark) await _web?.runJavaScript(_darkScript(c));
           await _openService();
         },
         onWebResourceError: (e) {
@@ -85,7 +88,7 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
       if (mounted && !_ready) setState(() => _ready = true);
       return;
     }
-    final res = await _web?.runJavaScriptReturningResult(_clickScript(name));
+    final res = await _web?.runJavaScriptReturningResult(ScrapeScripts.click(name));
     final ok = '$res'.contains('ok');
     if (!mounted) return;
     setState(() {
@@ -94,27 +97,31 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
     });
   }
 
-  /// يبحث عن عنصر في القائمة يطابق اسم الخدمة ويضغط عليه. تُوحَّد صيغ
-  /// الألف والياء والتاء المربوطة لأن تسميات الخادم تختلف عن تسميات التطبيق.
-  static String _clickScript(String name) => '''
+  /// صفحات الخادم مصممة بخلفيات بيضاء ونص أسود، فتُعدَّل ألوانها في الوضع
+  /// الغامق: الخلفيات الفاتحة تصبح بلون البطاقات والنص الداكن يصبح فاتحًا،
+  /// مع إبقاء الألوان المميزة مثل الأخضر والأحمر. تتكرر المعالجة عند تغير
+  /// محتوى الصفحة، كما في جدول الحضور بعد اختيار الشهر.
+  static String _darkScript(AppColors c) => '''
 (function(){
-  function norm(s){return (s||'').replace(/[أإآا]/g,'ا').replace(/[ىي]/g,'ي').replace(/[ةه]/g,'ه')
-    .replace(/[^\u0621-\u064A]/g,'');}
-  var want=norm(${_jsString(name)});
-  var els=document.querySelectorAll('a,button,[onclick],li,.card,.item,div');
-  for(var pass=0;pass<2;pass++){
-    for(var i=0;i<els.length;i++){
-      var e=els[i];
-      if(e.querySelector && e.querySelector('a,button,[onclick]')) continue;
-      var t=norm(e.innerText||e.textContent);
-      if(!t) continue;
-      if(pass===0 ? t===want : (t.indexOf(want)>=0 && t.length<=want.length+10)){
-        e.click();
-        return 'ok';
-      }
+  var surface='${_hex(c.surface)}', surface2='${_hex(c.surface2)}', ink='${_hex(c.ink)}';
+  function lum(v){var m=(v||'').match(/[\\d.]+/g); if(!m||m.length<3) return -1;
+    if(m.length>3&&parseFloat(m[3])<0.1) return -1; return (0.299*m[0]+0.587*m[1]+0.114*m[2])/255;}
+  function sat(v){var m=(v||'').match(/[\\d.]+/g); if(!m||m.length<3) return 0;
+    var a=Math.max(m[0],m[1],m[2]), b=Math.min(m[0],m[1],m[2]); return a===0?0:(a-b)/a;}
+  function fix(){
+    var all=document.querySelectorAll('body, body *');
+    for(var i=0;i<all.length;i++){
+      var e=all[i], cs=getComputedStyle(e);
+      var b=lum(cs.backgroundColor);
+      if(b>0.85) e.style.setProperty('background-color', e.tagName==='TH'||e.tagName==='THEAD'?surface2:surface,'important');
+      else if(b>0.6 && sat(cs.backgroundColor)<0.15) e.style.setProperty('background-color',surface2,'important');
+      var f=lum(cs.color);
+      if(f>=0 && f<0.45 && sat(cs.color)<0.35) e.style.setProperty('color',ink,'important');
     }
   }
-  return 'no';
+  fix();
+  var t; new MutationObserver(function(){clearTimeout(t); t=setTimeout(fix,150);})
+    .observe(document.body,{childList:true,subtree:true});
 })();''';
 
   static String _hex(Color c) => '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
@@ -162,6 +169,25 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
                   Offstage(offstage: !_ready, child: WebViewWidget(controller: web)),
                   if (!_ready) const Center(child: CircularProgressIndicator()),
                 ]),
+    );
+  }
+}
+
+/// زر يفتح صفحة الخدمة الأصلية من خادم الشركة، احتياطًا إن تعذرت قراءة
+/// بياناتها في التصميم الجديد.
+class OriginalPageButton extends StatelessWidget {
+  final String service;
+  const OriginalPageButton(this.service, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (context.read<AppState>().isDemo) return const SizedBox.shrink();
+    return IconButton(
+      tooltip: 'الصفحة الأصلية',
+      icon: const Icon(Icons.open_in_browser_rounded),
+      onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ServicesWebScreen(title: service, serviceName: service),
+      )),
     );
   }
 }

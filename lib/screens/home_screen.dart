@@ -307,34 +307,31 @@ class _AmountState extends State<_Amount> {
     const style = TextStyle(fontSize: 30, fontWeight: FontWeight.w700, letterSpacing: -.5);
     return Row(children: [
       _show
-          ? TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: widget.value),
-              duration: const Duration(milliseconds: 900),
-              curve: Curves.easeOutCubic,
-              builder: (context, v, _) => Text.rich(
-                TextSpan(children: [
-                  TextSpan(text: money(v), style: style),
-                  TextSpan(text: '  د.ع', style: TextStyle(fontSize: 14, color: c.ink3)),
-                ]),
-                style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
-              ),
+          ? Text.rich(
+              TextSpan(children: [
+                TextSpan(text: money(widget.value), style: style),
+                TextSpan(text: '  د.ع', style: TextStyle(fontSize: 14, color: c.ink3)),
+              ]),
+              style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
             )
           : Text('٭٭٭٭٭٭٭', style: style.copyWith(letterSpacing: 2, height: 1.35)),
       const SizedBox(width: 10),
-      // يبتلع الضغطة حتى لا تفتح البطاقة صفحة الراتب عند إظهار المبلغ.
-      GestureDetector(
-        onTap: () {},
-        onTapDown: (_) => _set(true),
-        onTapUp: (_) => _set(false),
-        onTapCancel: () => _set(false),
-        onLongPressEnd: (_) => _set(false),
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Icon(
-            _show ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-            size: 22,
-            color: c.ink3,
+      // أحداث اللمس المباشرة لا تتأثر بالضغط المطول، فيبقى المبلغ ظاهرًا
+      // ما دام الإصبع على العين. ويبتلع onTap الضغطة حتى لا تفتح البطاقة.
+      Listener(
+        onPointerDown: (_) => _set(true),
+        onPointerUp: (_) => _set(false),
+        onPointerCancel: (_) => _set(false),
+        child: GestureDetector(
+          onTap: () {},
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(
+              _show ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+              size: 22,
+              color: c.ink3,
+            ),
           ),
         ),
       ),

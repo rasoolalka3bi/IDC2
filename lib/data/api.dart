@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+import '../services/web_scraper.dart';
 import 'models.dart';
 import 'repository.dart';
 
@@ -164,23 +165,27 @@ class ApiRepository implements Repository {
     return SalarySlip.fromJson(json, year: year, month: month);
   }
 
-  /// القصاصة الرسمية تُولَّد على الخادم كصورة، وهي نفسها المعتمدة للطباعة.
-  /// العنوان يُبنى بنفس صيغة التطبيق الأصلي، بما فيها تكرار علامة &.
+  /// القصاصة الرسمية كما في التطبيق الأصلي: تُفتح صفحة salary_image.php
+  /// فتولّد صورة النموذج على الخادم وترسل رابطها عبر قناة ReceiveMessage،
+  /// ثم تُنزَّل الصورة ويُطلب من الخادم حذف نسختها المؤقتة.
   @override
   Future<Uint8List?> salaryImage(int year, int month) async {
+    final url = Uri.parse('${Endpoints.base}${Endpoints.salaryImage}?eid=$_userId&&salaryMonth=$month'
+        '&&salaryYear=$year&&token=${Uri.encodeQueryComponent(_token)}');
+    final msg = (await WebScraper.instance.waitForMessage(url))?.trim();
+    if (msg == null || msg.isEmpty) return null;
+    final imageUrl = Uri.parse(Endpoints.base).resolve(msg.replaceAll('"', ''));
     try {
-      final res = await _dio.get<List<int>>(
-        '${Endpoints.salaryImage}?eid=$_userId&&salaryMonth=$month&&salaryYear=$year'
-        '&&token=${Uri.encodeQueryComponent(_token)}',
-        options: Options(responseType: ResponseType.bytes),
-      );
+      final res = await _dio.getUri<List<int>>(imageUrl, options: Options(responseType: ResponseType.bytes));
       final bytes = res.data;
-      if (bytes == null || bytes.length < 1024) return null;
-      final type = '${res.headers.value('content-type')}';
-      if (!type.startsWith('image/')) return null;
+      if (bytes == null || bytes.isEmpty) return null;
       return Uint8List.fromList(bytes);
     } on DioException {
       return null;
+    } finally {
+      _dio
+          .get<String>('delete_salary_image.php?action=deleteSalaryImage&imageName=$_userId$month$year')
+          .ignore();
     }
   }
 
@@ -259,18 +264,116 @@ class ApiRepository implements Repository {
         'token': _user?.token ?? '',
       });
 
-  // خدمات الحضور والنقاط والدورات والتشكرات تعرض حاليًا كصفحات ويب من الخادم
-  // ولا توجد لها واجهة JSON معروفة، لذلك تفتح من خلال servicesPage() إلى أن
-  // توفر الشركة واجهة بيانات لها.
+  // الخدمات لا تتوفر إلا كصفحات ويب داخل قائمة الخدمات، فتُقرأ بياناتها
+  // بمتصفح مخفي (WebScraper) وتعرض بتصميم التطبيق.
   @override
-  bool get hasNativeServices => false;
+  bool get hasNativeServices => true;
+
+  Future<Map> _scrape(String service, {List<String> more = const []}) async {
+    final Object? out;
+    try {
+      out = await WebScraper.instance.run(
+        servicesPage(),
+        actions: [ScrapeScripts.click(service), ...more],
+        extract: ScrapeScripts.extract,
+      );
+    } catch (_) {
+      throw const ApiException('تعذر الوصول للخادم، تأكد من الاتصال بالإنترنت');
+    }
+    if (out is! Map) throw const ApiException('تعذر قراءة بيانات الخدمة من الخادم');
+    return out;
+  }
+
+  static List<List<String>> _table(Map page, bool Function(String header) match) {
+    final tables = page['tables'];
+    if (tables is! List) return const [];
+    for (final t in tables) {
+      if (t is! List || t.isEmpty) continue;
+      final rows = t.map((r) => r is List ? r.map((c) => '$c').toList() : <String>[]).toList();
+      if (match(rows.first.join(' '))) return rows.skip(1).where((r) => r.any((c) => c.trim().isNotEmpty)).toList();
+    }
+    return const [];
+  }
+
+  static String _clean(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
   @override
-  Future<List<AttendanceDay>> attendance(int year, int month) => throw const ApiException('غير متاح');
+  Future<List<Course>> courses() async {
+    final page = await _scrape('الدورات');
+    return [
+      for (final r in _table(page, (h) => h.contains('الدورة')))
+        if (r.isNotEmpty) Course(_clean(r[0]), r.length > 1 ? parseDate(_clean(r[1])) : null, r.length > 2 ? parseDate(_clean(r[2])) : null),
+    ];
+  }
+
   @override
-  Future<HousingPoints> housingPoints() => throw const ApiException('غير متاح');
+  Future<List<ThanksLetter>> thanksLetters() async {
+    final page = await _scrape('التشكرات');
+    return [
+      for (final r in _table(page, (h) => h.contains('الكتاب')))
+        if (r.isNotEmpty) ThanksLetter(_clean(r[0]), r.length > 1 ? parseDate(_clean(r[1])) : null, r.length > 2 ? _clean(r[2]) : ''),
+    ];
+  }
+
+  /// صفحة النقاط قائمة من سطور «البند ثم الرقم» ومعها المجموع.
   @override
-  Future<List<Course>> courses() => throw const ApiException('غير متاح');
+  Future<HousingPoints> housingPoints() async {
+    final page = await _scrape('نقاطي');
+    final lines = '${page['text'] ?? ''}'.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+    final items = <String, int>{};
+    int? total;
+    void add(String label, int v) {
+      if (label.contains('المجموع')) {
+        total = v;
+      } else if (!items.containsKey(label)) {
+        items[label] = v;
+      }
+    }
+
+    final num = RegExp(r'^\d+$');
+    final inline = RegExp(r'^(\D+?)\s+(\d+)$');
+    for (var i = 0; i < lines.length; i++) {
+      final m = inline.firstMatch(lines[i]);
+      if (m != null) {
+        add(m[1]!.trim(), int.parse(m[2]!));
+      } else if (!num.hasMatch(lines[i]) && i + 1 < lines.length && num.hasMatch(lines[i + 1])) {
+        add(lines[i], int.parse(lines[i + 1]));
+        i++;
+      }
+    }
+    if (items.isEmpty && total == null) throw const ApiException('تعذر قراءة بيانات النقاط من الخادم');
+    return HousingPoints(items, max: null, reportedTotal: total);
+  }
+
+  /// كل خانة في جدول الحضور فيها رقم اليوم ثم وقت الدخول ثم وقت الخروج،
+  /// و«-:-» تعني عدم وجود بصمة، و N تعني يوم عطلة.
   @override
-  Future<List<ThanksLetter>> thanksLetters() => throw const ApiException('غير متاح');
+  Future<List<AttendanceDay>> attendance(int year, int month) async {
+    final page = await _scrape('الحضور', more: [ScrapeScripts.attendanceMonth(year, month)]);
+    final days = <int, AttendanceDay>{};
+    final time = RegExp(r'^(\d{1,2}):(\d{1,2})$');
+    String? fmt(String? t) {
+      final m = t == null ? null : time.firstMatch(t);
+      return m == null ? null : '${m[1]}:${m[2]!.padLeft(2, '0')}';
+    }
+
+    for (final r in _table(page, (h) => h.contains('الاحد') || h.contains('الأحد') || h.contains('السبت'))) {
+      for (final cell in r) {
+        final parts = cell.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+        if (parts.isEmpty) continue;
+        final d = int.tryParse(parts.first);
+        if (d == null || d < 1 || d > 31) continue;
+        final rest = parts.skip(1).toList();
+        final times = rest.where((p) => time.hasMatch(p)).toList();
+        days[d] = AttendanceDay(
+          DateTime(year, month, d),
+          checkIn: fmt(times.isNotEmpty ? times[0] : null),
+          checkOut: fmt(times.length > 1 ? times[1] : null),
+          holiday: rest.any((p) => p.toUpperCase() == 'N'),
+        );
+      }
+    }
+    if (days.isEmpty) throw const ApiException('لا توجد بيانات حضور لهذا الشهر');
+    return (days.keys.toList()..sort()).map((d) => days[d]!).toList();
+  }
 }

@@ -294,10 +294,15 @@ class AttendanceDay {
 
 class HousingPoints {
   final Map<String, int> items;
-  final int max;
+
+  /// الحد الأعلى للنقاط إن كان معروفًا، والخادم لا يرسله.
+  final int? max;
   final bool fileClosed;
-  const HousingPoints(this.items, {this.max = 80, this.fileClosed = false});
-  int get total => items.values.fold(0, (a, b) => a + b);
+  final int? reportedTotal;
+  const HousingPoints(this.items, {this.max = 80, this.fileClosed = false, this.reportedTotal});
+
+  /// المجموع كما يحسبه الخادم، وإلا مجموع البنود.
+  int get total => reportedTotal ?? items.values.fold(0, (a, b) => a + b);
 }
 
 class Course {

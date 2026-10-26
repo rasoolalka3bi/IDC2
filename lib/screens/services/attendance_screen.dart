@@ -6,6 +6,7 @@ import '../../app/format.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../widgets/common.dart';
+import 'services_web_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -35,7 +36,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final repo = context.read<AppState>().repo;
     final canNext = DateTime(_month.year, _month.month + 1).isBefore(DateTime.now());
     return Scaffold(
-      appBar: AppBar(title: const Text('الحضور')),
+      appBar: AppBar(title: const Text('الحضور'), actions: const [OriginalPageButton('الحضور'), SizedBox(width: 8)]),
       body: AsyncBody<List<AttendanceDay>>(
         key: _body,
         load: () => repo.attendance(_month.year, _month.month),
