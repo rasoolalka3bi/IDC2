@@ -245,7 +245,8 @@ class InquiryReply {
     final type = str(m, ['reply_type', 'replyType', 'type']).toLowerCase();
     return InquiryReply(
       text: str(m, ['reply_text', 'replyText', 'text']),
-      fromEmployee: type == 'user' || type == 'employee' || type == '1' || type == 'emp',
+      // التطبيق الأصلي يرسل ردود الموظف بالنوع 2.
+      fromEmployee: type == '2' || type == 'user' || type == 'employee' || type == 'emp',
       date: parseDate(pick(m, ['reply_date', 'replyDate', 'date'])),
     );
   }

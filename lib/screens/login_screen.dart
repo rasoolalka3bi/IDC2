@@ -7,6 +7,7 @@ import '../app/app_state.dart';
 import '../app/theme.dart';
 import '../data/api.dart';
 import '../widgets/common.dart';
+import 'services/services_web_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -230,11 +231,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _forgot(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _ForgotSheet(),
-    );
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ServicesWebScreen(
+        title: 'استعادة كلمة المرور',
+        url: Uri.parse('${Endpoints.base}${Endpoints.resetPassword}'),
+      ),
+    ));
   }
 }
 
@@ -246,75 +248,4 @@ class _Label extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 7, right: 2),
         child: Text(text, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.colors.ink2)),
       );
-}
-
-class _ForgotSheet extends StatefulWidget {
-  const _ForgotSheet();
-  @override
-  State<_ForgotSheet> createState() => _ForgotSheetState();
-}
-
-class _ForgotSheetState extends State<_ForgotSheet> {
-  final _form = GlobalKey<FormState>();
-  final _user = TextEditingController();
-  final _phone = TextEditingController();
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _user.dispose();
-    _phone.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    if (!_form.currentState!.validate()) return;
-    setState(() => _busy = true);
-    final nav = Navigator.of(context);
-    try {
-      await context.read<AppState>().repo.resetPassword(username: _user.text.trim(), phone: _phone.text.trim());
-      nav.pop();
-      if (mounted) showMessage(context, 'تم إرسال طلب استعادة كلمة المرور');
-    } catch (e) {
-      if (mounted) showMessage(context, '$e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, MediaQuery.viewInsetsOf(context).bottom + 24),
-      child: Form(
-        key: _form,
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('استعادة كلمة المرور', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Text('أدخل رقمك الوظيفي ورقم الهاتف المسجل لدى الشركة.', style: TextStyle(color: context.colors.ink3, fontSize: 13)),
-          const SizedBox(height: 18),
-          TextFormField(
-            controller: _user,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(hintText: 'الرقم الوظيفي', prefixIcon: Icon(Icons.badge_outlined)),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'لا يمكن ترك هذا الحقل فارغًا' : null,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _phone,
-            keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(hintText: '07xxxxxxxxx', prefixIcon: Icon(Icons.phone_iphone_rounded)),
-            validator: (v) => (v == null || v.trim().length < 10) ? 'يرجى إدخال رقم الهاتف' : null,
-          ),
-          const SizedBox(height: 18),
-          FilledButton(
-            onPressed: _busy ? null : _send,
-            child: _busy
-                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                : const Text('إرسال'),
-          ),
-        ]),
-      ),
-    );
-  }
 }

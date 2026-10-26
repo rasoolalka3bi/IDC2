@@ -11,7 +11,10 @@ import '../../widgets/common.dart';
 /// إضافي يقرّب شكلها من تصميم التطبيق إلى أن تتوفر لها واجهة بيانات.
 class ServicesWebScreen extends StatefulWidget {
   final String title;
-  const ServicesWebScreen({super.key, required this.title});
+
+  /// صفحة أخرى من خادم الشركة بدل صفحة الخدمات، مثل صفحة استعادة كلمة المرور.
+  final Uri? url;
+  const ServicesWebScreen({super.key, required this.title, this.url});
 
   @override
   State<ServicesWebScreen> createState() => _ServicesWebScreenState();
@@ -33,6 +36,12 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
     _web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(c.bg)
+      // صفحات الخادم ترسل رسائلها للتطبيق عبر هذه القناة كما في التطبيق الأصلي.
+      ..addJavaScriptChannel('ReceiveMessage', onMessageReceived: (m) {
+        if (!mounted) return;
+        showMessage(context, m.message);
+        if (widget.url != null) Navigator.of(context).maybePop();
+      })
       ..setNavigationDelegate(NavigationDelegate(
         onProgress: (p) => mounted ? setState(() => _progress = p) : null,
         onPageStarted: (_) => mounted ? setState(() => _failed = false) : null,
@@ -49,7 +58,7 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
           return NavigationDecision.prevent;
         },
       ))
-      ..loadRequest(state.repo.servicesPage());
+      ..loadRequest(widget.url ?? state.repo.servicesPage());
   }
 
   static String _hex(Color c) => '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
