@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 
 import 'models.dart';
@@ -131,14 +132,24 @@ class ApiRepository implements Repository {
   /// بالترتيب ويُحفظ ما نجح منها. عند الفشل تُجمع الردود لعرضها كتفاصيل.
   @override
   Future<User> login(String username, String password) async {
-    final fields = {'username': username, 'password': password};
-    final attempts = <String, Future<Response<String>> Function()>{
-      'form': () => _dio.post<String>(Endpoints.login,
-          data: fields, options: Options(contentType: Headers.formUrlEncodedContentType)),
-      'multipart': () => _dio.post<String>(Endpoints.login, data: FormData.fromMap(fields)),
-      'json': () => _dio.post<String>(Endpoints.login, data: jsonEncode(fields), options: Options(contentType: Headers.jsonContentType)),
-      'get': () => _dio.get<String>(Endpoints.login, queryParameters: fields),
+    // التطبيق القديم يحتوي على المفاتيح username و pass و fcmToken و deviceId،
+    // وقد تكون كلمة المرور مشفرة بـ md5، فتُجرَّب هذه الاحتمالات بالترتيب.
+    final hashed = md5.convert(utf8.encode(password)).toString();
+    final variants = <String, Map<String, String>>{
+      'pass': {'username': username, 'pass': password, 'fcmToken': '', 'deviceId': ''},
+      'password': {'username': username, 'password': password},
+      'pass+md5': {'username': username, 'pass': hashed, 'fcmToken': '', 'deviceId': ''},
+      'password+md5': {'username': username, 'password': hashed},
     };
+    final attempts = <String, Future<Response<String>> Function()>{};
+    for (final v in variants.entries) {
+      final f = v.value;
+      attempts['${v.key}/form'] = () => _dio.post<String>(Endpoints.login,
+          data: f, options: Options(contentType: Headers.formUrlEncodedContentType));
+      attempts['${v.key}/multipart'] = () => _dio.post<String>(Endpoints.login, data: FormData.fromMap(f));
+      attempts['${v.key}/json'] = () =>
+          _dio.post<String>(Endpoints.login, data: jsonEncode(f), options: Options(contentType: Headers.jsonContentType));
+    }
     final log = StringBuffer();
     var denied = false;
     var reached = false;
@@ -179,7 +190,7 @@ class ApiRepository implements Repository {
     final t = s.replaceAll(RegExp(r'\s+'), ' ').trim();
     // إخفاء أي رمز دخول قد يظهر في الرد قبل عرضه.
     final masked = t.replaceAllMapped(RegExp(r'("token"\s*:\s*")([^"]{4})[^"]*'), (m) => '${m[1]}${m[2]}…');
-    return masked.length > 400 ? '${masked.substring(0, 400)}…' : masked;
+    return masked.length > 160 ? '${masked.substring(0, 160)}…' : masked;
   }
 
   @override

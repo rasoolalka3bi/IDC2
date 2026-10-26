@@ -40,7 +40,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: IDC 3.0.0 (بناء ${{ github.run_number }})
+          name: IDC (بناء ${{ github.run_number }})
           body: |
             لمعظم الهواتف حمّل IDC-arm64.apk، وللهواتف القديمة IDC-old-phones.apk.
           files: build/app/outputs/flutter-apk/IDC-*.apk
