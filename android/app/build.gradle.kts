@@ -30,11 +30,25 @@ android {
         versionName = flutter.versionName
     }
 
+    // مفتاح توقيع ثابت حتى تُثبَّت كل نسخة جديدة فوق السابقة. يفك البناء على
+    // GitHub الملف release.jks.enc بالسر IDC_SIGNING_KEY، وبدونه يُستخدم مفتاح
+    // التجربة الذي يتغير مع كل بناء.
+    val releaseStore = file("release.jks")
+    val releasePassword = System.getenv("IDC_SIGNING_KEY")
+    signingConfigs {
+        if (releaseStore.exists() && !releasePassword.isNullOrEmpty()) {
+            create("release") {
+                storeFile = releaseStore
+                storePassword = releasePassword
+                keyAlias = "idc"
+                keyPassword = releasePassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }

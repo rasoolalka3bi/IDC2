@@ -25,7 +25,20 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      # يفك مفتاح التوقيع الثابت إن أُضيف السر IDC_SIGNING_KEY في إعدادات المستودع.
+      - name: Prepare signing key
+        env:
+          IDC_SIGNING_KEY: ${{ secrets.IDC_SIGNING_KEY }}
+        run: |
+          if [ -n "$IDC_SIGNING_KEY" ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -in android/app/release.jks.enc -out android/app/release.jks -pass env:IDC_SIGNING_KEY
+            echo "Signing with the fixed release key"
+          else
+            echo "::warning::IDC_SIGNING_KEY is not set; the APK is signed with a temporary key"
+          fi
       - run: flutter build apk --release --split-per-abi
+        env:
+          IDC_SIGNING_KEY: ${{ secrets.IDC_SIGNING_KEY }}
       - name: Rename APKs
         run: |
           cd build/app/outputs/flutter-apk
