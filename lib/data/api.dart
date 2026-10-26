@@ -26,7 +26,10 @@ class Endpoints {
 
 class ApiException implements Exception {
   final String message;
-  const ApiException(this.message);
+
+  /// تفاصيل تقنية تُعرض عند الطلب للمساعدة في معرفة سبب الخطأ.
+  final String? details;
+  const ApiException(this.message, [this.details]);
   @override
   String toString() => message;
 }
@@ -96,20 +99,87 @@ class ApiRepository implements Repository {
 
   Object? _unwrap(Object? json) => json is Map && json['data'] != null ? json['data'] : json;
 
+  /// يبحث داخل الرد عن كائن فيه بيانات المستخدم مهما كان مستوى تداخله.
+  static Map? _findUser(Object? json, [int depth = 0]) {
+    if (depth > 4 || json == null) return null;
+    if (json is Map) {
+      if (pick(json, ['user_id', 'userId', 'token', 'user_display_name', 'eid']) != null) return json;
+      for (final v in json.values) {
+        final f = _findUser(v, depth + 1);
+        if (f != null) return f;
+      }
+    } else if (json is List) {
+      for (final v in json) {
+        final f = _findUser(v, depth + 1);
+        if (f != null) return f;
+      }
+    } else if (json is String && json.trim().startsWith(RegExp(r'[\[{]'))) {
+      try {
+        return _findUser(jsonDecode(json), depth + 1);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  static bool _denied(Object? json) {
+    if (json is! Map) return false;
+    final a = '${json['authorized'] ?? json['status'] ?? json['success'] ?? ''}'.toLowerCase();
+    return a == 'false' || a == '0' || a == 'error' || a == 'fail';
+  }
+
+  /// صيغة الطلب التي يقبلها خادم الشركة غير موثقة، لذلك تُجرَّب الصيغ الشائعة
+  /// بالترتيب ويُحفظ ما نجح منها. عند الفشل تُجمع الردود لعرضها كتفاصيل.
   @override
   Future<User> login(String username, String password) async {
-    final json = await _send(() => _dio.post<String>(
-          Endpoints.login,
-          data: FormData.fromMap({'username': username, 'password': password}),
-        ));
-    final data = _unwrap(json);
-    if (data is! Map) throw const ApiException('اسم المستخدم أو كلمة المرور غير صحيحة');
-    final user = User.fromJson(data);
-    if (user.token.isEmpty && user.id.isEmpty) {
-      throw const ApiException('اسم المستخدم أو كلمة المرور غير صحيحة');
+    final fields = {'username': username, 'password': password};
+    final attempts = <String, Future<Response<String>> Function()>{
+      'form': () => _dio.post<String>(Endpoints.login,
+          data: fields, options: Options(contentType: Headers.formUrlEncodedContentType)),
+      'multipart': () => _dio.post<String>(Endpoints.login, data: FormData.fromMap(fields)),
+      'json': () => _dio.post<String>(Endpoints.login, data: jsonEncode(fields), options: Options(contentType: Headers.jsonContentType)),
+      'get': () => _dio.get<String>(Endpoints.login, queryParameters: fields),
+    };
+    final log = StringBuffer();
+    var denied = false;
+    var reached = false;
+    for (final e in attempts.entries) {
+      try {
+        final res = await e.value();
+        reached = true;
+        final body = res.data ?? '';
+        log.writeln('[${e.key}] HTTP ${res.statusCode}: ${_short(body)}');
+        Object? json;
+        try {
+          json = body.trim().isEmpty ? null : jsonDecode(body);
+        } catch (_) {
+          json = null;
+        }
+        final m = _findUser(json);
+        if (m != null) {
+          final user = User.fromJson(m);
+          if (user.token.isNotEmpty || user.id.isNotEmpty) {
+            _user = user.token.isEmpty ? User.fromJson({...m, 'token': str(json is Map ? json : {}, ['token'])}) : user;
+            return _user!;
+          }
+        }
+        if (_denied(json)) denied = true;
+      } on DioException catch (err) {
+        if (err.response != null) reached = true;
+        log.writeln('[${e.key}] ${err.type.name} ${err.response?.statusCode ?? ''}: ${_short(err.response?.data?.toString() ?? err.message ?? '')}');
+      }
     }
-    _user = user;
-    return user;
+    if (!reached) throw ApiException('تعذر الوصول للخادم، تأكد من الاتصال بالإنترنت', log.toString());
+    throw ApiException(
+      denied ? 'اسم المستخدم أو كلمة المرور غير صحيحة' : 'لم يتعرف التطبيق على رد الخادم',
+      log.toString(),
+    );
+  }
+
+  static String _short(String s) {
+    final t = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // إخفاء أي رمز دخول قد يظهر في الرد قبل عرضه.
+    final masked = t.replaceAllMapped(RegExp(r'("token"\s*:\s*")([^"]{4})[^"]*'), (m) => '${m[1]}${m[2]}…');
+    return masked.length > 400 ? '${masked.substring(0, 400)}…' : masked;
   }
 
   @override

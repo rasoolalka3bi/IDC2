@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../app/app_state.dart';
 import '../app/theme.dart';
+import '../data/api.dart';
 import '../widgets/common.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -21,6 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _hide = true;
   bool _busy = false;
   String? _error;
+  String? _details;
 
   @override
   void initState() {
@@ -44,14 +46,45 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _busy = true;
       _error = null;
+      _details = null;
     });
     try {
       await context.read<AppState>().signIn(_user.text.trim(), _pass.text, demo: demo);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) {
+        setState(() {
+          _error = '$e';
+          _details = e is ApiException ? e.details : null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _showDetails() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Text('تفاصيل الخطأ', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text('صوّر هذه الشاشة وأرسلها للمطور.', style: TextStyle(color: context.colors.ink3, fontSize: 13)),
+          const SizedBox(height: 12),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .5),
+            child: SingleChildScrollView(
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: SelectableText(_details ?? '', style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.5)),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 
   Future<void> _biometric() async {
@@ -151,6 +184,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                     Icon(Icons.error_outline_rounded, color: c.red, size: 20),
                                     const SizedBox(width: 8),
                                     Expanded(child: Text(_error!, style: TextStyle(color: c.red, fontSize: 13))),
+                                    if (_details != null)
+                                      TextButton(
+                                        onPressed: _showDetails,
+                                        style: TextButton.styleFrom(foregroundColor: c.red, visualDensity: VisualDensity.compact),
+                                        child: const Text('التفاصيل'),
+                                      ),
                                   ]),
                                 ),
                         ),
