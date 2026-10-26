@@ -8,7 +8,7 @@ import '../app/theme.dart';
 import '../widgets/common.dart';
 import 'change_password_screen.dart';
 import 'instructions_screen.dart';
-import 'shell.dart';
+import 'services/services_web_screen.dart';
 
 const appVersion = '3.0.3';
 
@@ -142,7 +142,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: Icons.badge_outlined,
               tone: Tone.blue,
               title: 'معلوماتي الوظيفية',
-              onTap: () => AppShell.goTo(context, AppShell.salary),
+              // صفحة «معلوماتي» على خادم الشركة، كما في التطبيق الأصلي.
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const ServicesWebScreen(title: 'معلوماتي الوظيفية', serviceName: 'معلوماتي'),
+              )),
             ),
             _MenuItem(
               icon: Icons.lock_outline_rounded,
