@@ -5,25 +5,34 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 /// يقرأ بيانات صفحات خادم الشركة بمتصفح مخفي ليعرضها التطبيق بتصميمه،
-/// لأن الخدمات لا تتوفر إلا كصفحات ويب. تُنفَّذ المهام واحدة تلو الأخرى.
+/// لأن الخدمات لا تتوفر إلا كصفحات ويب. يمكن تشغيل أكثر من مهمة معًا،
+/// ويُحفظ عنوان صفحة كل خدمة بعد أول فتح لتُفتح مباشرة دون المرور بالقائمة.
 class WebScraper {
   WebScraper._();
   static final instance = WebScraper._();
 
-  /// المتصفح الحالي، يعرضه [WebScraperHost] بحجم نقطة واحدة غير مرئية.
-  final controller = ValueNotifier<WebViewController?>(null);
-  Future<void> _queue = Future.value();
+  /// المتصفحات العاملة حاليًا، يعرضها [WebScraperHost] خلف واجهة التطبيق.
+  final controllers = ValueNotifier<List<WebViewController>>(const []);
+  final _pages = <String, String>{};
 
-  /// يفتح [url] ثم ينفذ [actions] بالترتيب، وينتظر بعد كل خطوة انتقال
-  /// الصفحة إن حدث، ثم يعيد نتيجة [extract] بعد فك JSON.
-  /// كل خطوة تعيد 'ok' إن نجحت، وأي نتيجة أخرى توقف العملية.
-  Future<Object?> run(Uri url, {List<String> actions = const [], required String extract, void Function(String)? onMessage}) {
-    final job = _queue.then((_) => _run(url, actions, extract, onMessage));
-    _queue = job.then((_) {}, onError: (_) {});
-    return job;
+  void _add(WebViewController c) => controllers.value = [...controllers.value, c];
+  void _remove(WebViewController c) => controllers.value = controllers.value.where((e) => e != c).toList();
+
+  /// يفتح صفحة الخدمة [service] من قائمة الخدمات [menu] (أو من عنوانها
+  /// المحفوظ)، ثم ينفذ [more] بالترتيب ويعيد نتيجة [extract] بعد فك JSON.
+  Future<Object?> service(Uri menu, String service, {List<String> more = const [], required String extract}) async {
+    final known = _pages[service];
+    if (known != null) {
+      try {
+        final out = await _run(Uri.parse(known), more, extract);
+        if (out is Map && '${out['text'] ?? ''}'.trim().isNotEmpty) return out;
+      } catch (_) {}
+      _pages.remove(service);
+    }
+    return _run(menu, [ScrapeScripts.click(service), ...more], extract, rememberAs: service);
   }
 
-  Future<Object?> _run(Uri url, List<String> actions, String extract, void Function(String)? onMessage) async {
+  Future<Object?> _run(Uri url, List<String> actions, String extract, {String? rememberAs}) async {
     var finished = Completer<void>();
     var started = false;
     final c = WebViewController()
@@ -39,53 +48,51 @@ class WebScraper {
           }
         },
       ));
-    if (onMessage != null) {
-      c.addJavaScriptChannel('ReceiveMessage', onMessageReceived: (m) => onMessage(m.message));
-    }
-    controller.value = c;
+    _add(c);
     try {
-      finished = Completer();
       await c.loadRequest(url);
       await finished.future.timeout(const Duration(seconds: 30));
-      for (final a in actions) {
+      for (var i = 0; i < actions.length; i++) {
         started = false;
         finished = Completer();
-        final res = await c.runJavaScriptReturningResult(a);
-        if (!_text(res).contains('ok')) return null;
-        // ننتظر قليلًا لمعرفة إن كانت الخطوة ستفتح صفحة جديدة.
-        await Future.delayed(const Duration(milliseconds: 1200));
+        final res = _text(await c.runJavaScriptReturningResult(actions[i]));
+        if (res.contains('same')) continue;
+        if (!res.contains('ok')) return null;
+        // ننتظر بدء تحميل صفحة جديدة إن كانت الخطوة تفتح صفحة، وإلا نكمل.
+        for (var t = 0; t < 30 && !started; t++) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
         if (started) await finished.future.timeout(const Duration(seconds: 30));
+        if (i == 0 && rememberAs != null) {
+          final now = await c.currentUrl();
+          if (now != null && now != url.toString()) _pages[rememberAs] = now;
+        }
       }
-      final out = await c.runJavaScriptReturningResult(extract);
-      return _decode(out);
+      return _decode(await c.runJavaScriptReturningResult(extract));
     } finally {
-      controller.value = null;
+      _remove(c);
     }
   }
 
   /// يفتح [url] وينتظر أول رسالة ترسلها الصفحة عبر قناة ReceiveMessage،
   /// كما تفعل صفحة قصاصة الراتب عند انتهاء توليد صورتها.
-  Future<String?> waitForMessage(Uri url, {Duration timeout = const Duration(seconds: 40)}) {
-    final job = _queue.then((_) async {
-      final got = Completer<String?>();
-      final c = WebViewController()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..addJavaScriptChannel('ReceiveMessage', onMessageReceived: (m) {
-          if (!got.isCompleted) got.complete(m.message);
-        })
-        ..setNavigationDelegate(NavigationDelegate(onWebResourceError: (e) {
-          if ((e.isForMainFrame ?? true) && !got.isCompleted) got.complete(null);
-        }));
-      controller.value = c;
-      try {
-        await c.loadRequest(url);
-        return await got.future.timeout(timeout, onTimeout: () => null);
-      } finally {
-        controller.value = null;
-      }
-    });
-    _queue = job.then((_) {}, onError: (_) {});
-    return job;
+  Future<String?> waitForMessage(Uri url, {Duration timeout = const Duration(seconds: 45)}) async {
+    final got = Completer<String?>();
+    final c = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel('ReceiveMessage', onMessageReceived: (m) {
+        if (!got.isCompleted) got.complete(m.message);
+      })
+      ..setNavigationDelegate(NavigationDelegate(onWebResourceError: (e) {
+        if ((e.isForMainFrame ?? true) && !got.isCompleted) got.complete(null);
+      }));
+    _add(c);
+    try {
+      await c.loadRequest(url);
+      return await got.future.timeout(timeout, onTimeout: () => null);
+    } finally {
+      _remove(c);
+    }
   }
 
   static String _text(Object? r) => '$r';
@@ -104,8 +111,9 @@ class WebScraper {
   }
 }
 
-/// يضع متصفح [WebScraper] في شجرة الواجهة دون أن يراه المستخدم، لأن
-/// أندرويد لا يحمّل الصفحات في متصفح غير معروض.
+/// يضع متصفحات [WebScraper] بحجم الشاشة خلف واجهة التطبيق فلا يراها
+/// المستخدم، لأن أندرويد لا يحمّل الصفحات في متصفح غير معروض، وبعض الصفحات
+/// (مثل قصاصة الراتب) تحتاج عرضًا حقيقيًا لترسم محتواها.
 class WebScraperHost extends StatelessWidget {
   final Widget child;
   const WebScraperHost({super.key, required this.child});
@@ -113,19 +121,13 @@ class WebScraperHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Stack(textDirection: TextDirection.rtl, children: [
-      child,
-      ValueListenableBuilder<WebViewController?>(
-        valueListenable: WebScraper.instance.controller,
-        builder: (context, c, _) => c == null
-            ? const SizedBox.shrink()
-            : Positioned(
-                left: 0,
-                top: 0,
-                width: 2,
-                height: 2,
-                child: IgnorePointer(child: Opacity(opacity: 0.01, child: WebViewWidget(controller: c))),
-              ),
+      ValueListenableBuilder<List<WebViewController>>(
+        valueListenable: WebScraper.instance.controllers,
+        builder: (context, list, _) => Stack(children: [
+          for (final c in list) Positioned.fill(child: IgnorePointer(child: WebViewWidget(key: ObjectKey(c), controller: c))),
+        ]),
       ),
+      child,
     ]);
   }
 }
@@ -170,14 +172,15 @@ class ScrapeScripts {
     }
     return false;
   }
-  var y=false,m=false;
+  var y=false,m=false,changed=false;
+  function pick2(sel,v){var before=sel.selectedIndex; var ok=pick(sel,v); if(ok&&sel.selectedIndex!==before) changed=true; return ok;}
   for(var i=0;i<sels.length;i++){
     var s=sels[i], hasYear=false;
     for(var j=0;j<s.options.length;j++){ if(parseInt(s.options[j].text,10)>1900) hasYear=true; }
-    if(hasYear) y=pick(s,$year)||y; else m=pick(s,$month)||m;
+    if(hasYear) y=pick2(s,$year)||y; else m=pick2(s,$month)||m;
   }
-  // إن لم توجد القوائم يُقرأ الشهر المعروض كما هو.
-  if(!y||!m) return 'ok';
+  // إن لم توجد القوائم أو كان الشهر معروضًا أصلًا يُقرأ كما هو.
+  if(!y||!m||!changed) return 'same';
   var btns=document.querySelectorAll('button,input[type=submit],input[type=button],a');
   for(var k=0;k<btns.length;k++){
     var t=(btns[k].innerText||btns[k].value||'').trim();
@@ -195,8 +198,12 @@ class ScrapeScripts {
       return [].map.call(tr.querySelectorAll('th,td'),function(td){return (td.innerText||td.textContent||'').trim();});
     });
   });
+  // الصور تُحوَّل إلى بيانات داخلية إن أمكن، لأن بعضها لا يُفتح خارج جلسة الصفحة.
   var images=[].filter.call(document.querySelectorAll('img'),function(i){return (i.naturalWidth||i.width)>=200;})
-    .map(function(i){return i.src;});
+    .map(function(i){
+      try{var cv=document.createElement('canvas'); cv.width=i.naturalWidth; cv.height=i.naturalHeight;
+        cv.getContext('2d').drawImage(i,0,0); return cv.toDataURL('image/jpeg',0.92);}catch(e){return i.src;}
+    });
   return JSON.stringify({tables:tables, images:images, text:(document.body.innerText||'')});
 })();''';
 }

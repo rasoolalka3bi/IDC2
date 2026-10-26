@@ -221,7 +221,7 @@ class _SlipViewState extends State<_SlipView> {
         ),
         for (final g in ordered) ...[
           const SizedBox(height: 14),
-          _GroupCard(group: g),
+          _GroupCard(group: g, month: slip.month),
         ],
         const SizedBox(height: 16),
         Row(children: [
@@ -272,13 +272,22 @@ class _Legend extends StatelessWidget {
 
 class _GroupCard extends StatefulWidget {
   final SalaryGroup group;
-  const _GroupCard({required this.group});
+  final int month;
+  const _GroupCard({required this.group, required this.month});
   @override
   State<_GroupCard> createState() => _GroupCardState();
 }
 
 class _GroupCardState extends State<_GroupCard> {
   late bool _open = widget.group.kind != SalaryGroupKind.info;
+
+  /// المبالغ فقط تُكتب بفواصل الآلاف. الأرقام مثل السنة والرقم الوظيفي
+  /// والخدمة تبقى كما هي، والشهر يُكتب باسمه لأن الخادم يرسل رقمًا لا يطابقه.
+  String _display(SalaryGroup g, SalaryItem item) {
+    if (item.label.trim() == 'الشهر') return arabicMonths[widget.month - 1];
+    final isMoney = g.kind == SalaryGroupKind.payments || g.kind == SalaryGroupKind.deductions || g.kind == SalaryGroupKind.totals;
+    return isMoney && item.amount != null ? money(item.amount!) : item.value;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -324,7 +333,7 @@ class _GroupCardState extends State<_GroupCard> {
             for (var i = 0; i < g.items.length; i++)
               KeyValueRow(
                 g.items[i].label,
-                g.kind == SalaryGroupKind.info || g.items[i].amount == null ? g.items[i].value : money(g.items[i].amount!),
+                _display(g, g.items[i]),
                 valueColor: color,
                 last: i == g.items.length - 1,
               ),

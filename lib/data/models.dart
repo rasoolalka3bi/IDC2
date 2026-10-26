@@ -11,6 +11,26 @@ dynamic pick(Map m, List<String> keys) {
 
 String str(Map m, List<String> keys, [String fallback = '']) => pick(m, keys)?.toString().trim() ?? fallback;
 
+/// نصوص التبليغات قد تصل بوسوم HTML، فتُحوَّل إلى نص عادي.
+String plainText(String s) => s
+    .replaceAll(RegExp(r'<br\s*/?>|</p>|</div>', caseSensitive: false), '\n')
+    .replaceAll(RegExp(r'<[^>]+>'), '')
+    .replaceAll('&nbsp;', ' ')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+    .trim();
+
+/// روابط الصور قد تصل نسبية، فتُكمَّل بعنوان الخادم.
+String? absoluteUrl(Object? v) {
+  final s = v?.toString().trim();
+  if (s == null || s.isEmpty) return null;
+  if (s.startsWith('http')) return s;
+  return Uri.parse('https://idc-iq.net/application/v2/api/').resolve(s).toString();
+}
+
 DateTime? parseDate(Object? v) {
   if (v == null) return null;
   final s = v.toString().trim();
@@ -44,7 +64,7 @@ class User {
         id: str(m, ['user_id', 'userId', 'id', 'eid']),
         nationalId: str(m, ['user_national_id', 'userNationalId', 'national_id']),
         displayName: str(m, ['user_display_name', 'userDisplayName', 'display_name', 'name']),
-        imageUrl: pick(m, ['user_image_url', 'userImageUrl', 'image_url', 'profileImage'])?.toString(),
+        imageUrl: absoluteUrl(pick(m, ['user_image_url', 'userImageUrl', 'image_url', 'profileImage'])),
         token: str(m, ['token', 'access_token', 'user_token']),
         jobTitle: pick(m, ['job_title', 'jobTitle'])?.toString(),
       );
@@ -104,7 +124,7 @@ class SalaryGroup {
 
   SalaryGroupKind get kind {
     final t = title;
-    if (t.contains('معلومات')) return SalaryGroupKind.info;
+    if (t.contains('معلومات') || t.contains('اجاز') || t.contains('إجاز')) return SalaryGroupKind.info;
     if (t.contains('مدفوع') || t.contains('استحقاق') || t.contains('مخصص')) return SalaryGroupKind.payments;
     if (t.contains('استقطاع')) return SalaryGroupKind.deductions;
     if (t.contains('مجموع') || t.contains('صافي') || t.contains('اجمال') || t.contains('إجمال')) return SalaryGroupKind.totals;
@@ -144,6 +164,15 @@ class SalarySlip {
 
   /// يقبل الشكلين المحتملين: قائمة صفوف {salary_group, salary_keys, salary_value}
   /// أو خريطة {اسم المجموعة: {اسم البند: القيمة}}.
+  /// الخادم يرسل رقم القسم بدل اسمه، والأسماء مأخوذة من التطبيق الأصلي.
+  static const _groupTitles = {
+    '1': 'المعلومات الأساسية',
+    '2': 'الإجازات',
+    '3': 'المدفوعات',
+    '4': 'الاستقطاعات',
+    '5': 'المجموع',
+  };
+
   factory SalarySlip.fromJson(Object? json, {required int year, required int month}) {
     final groups = <String, List<SalaryItem>>{};
     void add(String g, String k, String v) => (groups[g] ??= []).add(SalaryItem(k, v));
@@ -180,7 +209,7 @@ class SalarySlip {
     return SalarySlip(
       year: year,
       month: month,
-      groups: groups.entries.map((e) => SalaryGroup(e.key, e.value)).toList(),
+      groups: groups.entries.map((e) => SalaryGroup(_groupTitles[e.key.trim()] ?? e.key, e.value)).toList(),
     );
   }
 }
@@ -209,9 +238,9 @@ class Notice {
     final title = str(m, ['mainstream_title', 'title']);
     return Notice(
       id: str(m, ['mainstream_id', 'id', 'newsid']),
-      title: title,
-      description: str(m, ['mainstream_description', 'description', 'body', 'content']),
-      imageUrl: pick(m, ['mainstream_image_url', 'image_url', 'imageUrl'])?.toString(),
+      title: plainText(title),
+      description: plainText(str(m, ['mainstream_description', 'description', 'body', 'content'])),
+      imageUrl: absoluteUrl(pick(m, ['mainstream_image_url', 'image_url', 'imageUrl'])),
       date: parseDate(pick(m, ['mainstream_date', 'date', 'created_at', 'created'])),
       read: '${pick(m, ['read', 'is_read', 'seen']) ?? '1'}' != '0',
       kind: NoticeKind.guess(title),

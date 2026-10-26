@@ -78,6 +78,20 @@ class _ImageCard extends StatelessWidget {
   final String title;
   const _ImageCard({required this.url, required this.title});
 
+  /// الصور تأتي من الصفحة كبيانات داخلية (data:) غالبًا، أو كرابط عادي.
+  Widget _image({BoxFit? fit, Widget? error}) {
+    if (url.startsWith('data:')) {
+      final bytes = UriData.parse(url).contentAsBytes();
+      return Image.memory(bytes, fit: fit, errorBuilder: (_, _, _) => error ?? const SizedBox());
+    }
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: fit,
+      placeholder: (_, _) => const AspectRatio(aspectRatio: 1.4, child: Skeleton()),
+      errorWidget: (_, _, _) => error ?? const SizedBox(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -88,18 +102,13 @@ class _ImageCard extends StatelessWidget {
           builder: (_) => Scaffold(
             backgroundColor: Colors.black,
             appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, title: Text(title)),
-            body: InteractiveViewer(
-              maxScale: 5,
-              child: Center(child: CachedNetworkImage(imageUrl: url)),
-            ),
+            body: InteractiveViewer(maxScale: 5, child: Center(child: _image())),
           ),
         )),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: CachedNetworkImage(
-            imageUrl: url,
-            placeholder: (_, _) => const AspectRatio(aspectRatio: 1.4, child: Skeleton()),
-            errorWidget: (_, _, _) => AspectRatio(
+          child: _image(
+            error: AspectRatio(
               aspectRatio: 1.4,
               child: Center(child: Icon(Icons.broken_image_outlined, color: c.ink3, size: 40)),
             ),

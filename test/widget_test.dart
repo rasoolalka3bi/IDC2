@@ -70,4 +70,27 @@ void main() {
     expect(AttendanceDay(DateTime(2026), checkIn: '7:30').late, false);
     expect(AttendanceDay(DateTime(2026), checkIn: '7:51').late, true);
   });
+
+  test('نص التبليغ بلا وسوم HTML وروابط الصور كاملة', () {
+    expect(plainText('مرحبا<br>بكم&nbsp;<b>جميعا</b>'), 'مرحبا\nبكم جميعا');
+    expect(absoluteUrl('uploads/a.jpg'), 'https://idc-iq.net/application/v2/api/uploads/a.jpg');
+    expect(absoluteUrl('https://x.y/a.jpg'), 'https://x.y/a.jpg');
+    expect(absoluteUrl(''), isNull);
+  });
+
+  test('أقسام الراتب تأتي أرقامًا وتُعرض بأسمائها', () {
+    final slip = SalarySlip.fromJson({
+      'data': [
+        {'salary_group': '1', 'salary_keys': 'السنة', 'salary_value': '2026'},
+        {'salary_group': '3', 'salary_keys': 'حافز', 'salary_value': '711724'},
+        {'salary_group': '4', 'salary_keys': 'تقاعد', 'salary_value': '30800'},
+        {'salary_group': '5', 'salary_keys': 'الراتب الصافي', 'salary_value': '1815000'},
+      ]
+    }, year: 2026, month: 10);
+    expect(slip.groups.first.title, 'المعلومات الأساسية');
+    expect(slip.groups.first.kind, SalaryGroupKind.info);
+    expect(slip.totalPayments, 711724);
+    expect(slip.totalDeductions, 30800);
+    expect(slip.net, 1815000);
+  });
 }

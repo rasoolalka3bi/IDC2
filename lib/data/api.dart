@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 
 import '../services/web_scraper.dart';
 import 'models.dart';
+import 'scrape_parsers.dart';
 import 'repository.dart';
 
 /// عناوين خادم الشركة كما وردت في التطبيق الأصلي (الإصدار 2.0.3).
@@ -41,13 +42,16 @@ class ApiRepository implements Repository {
   User? _user;
 
   ApiRepository({Dio? dio})
-      : _dio = dio ??
-            Dio(BaseOptions(
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
               baseUrl: Endpoints.base,
               connectTimeout: const Duration(seconds: 20),
               receiveTimeout: const Duration(seconds: 30),
               responseType: ResponseType.plain,
-            ));
+            ),
+          );
 
   @override
   void attach(User? user) => _user = user;
@@ -77,7 +81,10 @@ class ApiRepository implements Repository {
 
   void _throwIfError(Object? json) {
     if (json is! Map) return;
-    if ('${json['http_response_code']}' == '401') throw const ApiException('انتهت الجلسة، سجّل الدخول مرة أخرى');
+    // الخادم يرد بـ 401 أيضًا على الطلبات غير المسموحة، فتظهر رسالته كما هي.
+    if ('${json['http_response_code']}' == '401') {
+      throw ApiException('رفض الخادم الطلب: ${json['data'] ?? ''}'.trim());
+    }
     final status = '${json['status'] ?? json['success'] ?? json['result'] ?? ''}'.toLowerCase();
     if (status == 'false' || status == 'error' || status == 'fail' || status == '0') {
       final msg = str(json, ['message', 'msg', 'error', 'errorText', 'error_text'], 'حدث خطأ ما، حاول مرة أخرى');
@@ -142,26 +149,27 @@ class ApiRepository implements Repository {
 
   @override
   Future<void> resetPassword({required String username, required String phone}) async {
-    await _send(() => _dio.post<String>(
-          Endpoints.resetPassword,
-          data: FormData.fromMap({'username': username, 'phone': phone}),
-        ));
+    await _send(
+      () => _dio.post<String>(Endpoints.resetPassword, data: FormData.fromMap({'username': username, 'phone': phone})),
+    );
   }
 
   String get _userId => _user?.id ?? '';
 
   @override
   Future<SalarySlip> salary(int year, int month) async {
-    final json = await _send(() => _dio.get<String>(
-          Endpoints.salaries,
-          queryParameters: {
-            'token': _token,
-            'userNationalId': _user?.nationalId ?? '',
-            'salaryMonth': month,
-            'salaryYear': year,
-            'userId': _userId,
-          },
-        ));
+    final json = await _send(
+      () => _dio.get<String>(
+        Endpoints.salaries,
+        queryParameters: {
+          'token': _token,
+          'userNationalId': _user?.nationalId ?? '',
+          'salaryMonth': month,
+          'salaryYear': year,
+          'userId': _userId,
+        },
+      ),
+    );
     return SalarySlip.fromJson(json, year: year, month: month);
   }
 
@@ -170,8 +178,10 @@ class ApiRepository implements Repository {
   /// ثم تُنزَّل الصورة ويُطلب من الخادم حذف نسختها المؤقتة.
   @override
   Future<Uint8List?> salaryImage(int year, int month) async {
-    final url = Uri.parse('${Endpoints.base}${Endpoints.salaryImage}?eid=$_userId&&salaryMonth=$month'
-        '&&salaryYear=$year&&token=${Uri.encodeQueryComponent(_token)}');
+    final url = Uri.parse(
+      '${Endpoints.base}${Endpoints.salaryImage}?eid=$_userId&&salaryMonth=$month'
+      '&&salaryYear=$year&&token=${Uri.encodeQueryComponent(_token)}',
+    );
     final msg = (await WebScraper.instance.waitForMessage(url))?.trim();
     if (msg == null || msg.isEmpty) return null;
     final imageUrl = Uri.parse(Endpoints.base).resolve(msg.replaceAll('"', ''));
@@ -183,9 +193,7 @@ class ApiRepository implements Repository {
     } on DioException {
       return null;
     } finally {
-      _dio
-          .get<String>('delete_salary_image.php?action=deleteSalaryImage&imageName=$_userId$month$year')
-          .ignore();
+      _dio.get<String>('delete_salary_image.php?action=deleteSalaryImage&imageName=$_userId$month$year').ignore();
     }
   }
 
@@ -196,7 +204,8 @@ class ApiRepository implements Repository {
     // يُبنى العنوان بنفس ترتيب التطبيق الأصلي حرفيًا، بما في ذلك وضع حجم
     // الصفحة بعد رقم المستخدم، لأن الخادم مضبوط على هذه الصيغة.
     final next = (page - 1) * _noticesPerPage;
-    final url = '${Endpoints.notices}?action=readAll&token=${Uri.encodeQueryComponent(_token)}'
+    final url =
+        '${Endpoints.notices}?action=readAll&token=${Uri.encodeQueryComponent(_token)}'
         '&maxPag=&userId=$_userId$_noticesPerPage&next=$next';
     final json = await _send(() => _dio.get<String>(url));
     final data = _unwrap(json);
@@ -215,27 +224,31 @@ class ApiRepository implements Repository {
 
   @override
   Future<void> sendReply(String inquiryId, String text) async {
-    await _send(() => _dio.post<String>(
-          Endpoints.addReply,
-          queryParameters: {'action': 'addReply', 'token': _token},
-          data: jsonEncode({
-            'inquiryId': inquiryId,
-            'text': text,
-            'replayType': '2',
-            'replyDate': DateTime.now().toString(),
-          }),
-          options: Options(contentType: 'text/plain; charset=utf-8'),
-        ));
+    await _send(
+      () => _dio.post<String>(
+        Endpoints.addReply,
+        queryParameters: {'action': 'addReply', 'token': _token},
+        data: jsonEncode({
+          'inquiryId': inquiryId,
+          'text': text,
+          'replayType': '2',
+          'replyDate': DateTime.now().toString(),
+        }),
+        options: Options(contentType: 'text/plain; charset=utf-8'),
+      ),
+    );
   }
 
   @override
   Future<void> changePassword(String oldPassword, String newPassword) async {
-    final json = await _send(() => _dio.post<String>(
-          Endpoints.user,
-          queryParameters: {'action': 'changePassword', 'token': _token},
-          data: jsonEncode({'userId': _userId, 'oldPassword': oldPassword, 'newPassword': newPassword}),
-          options: Options(contentType: 'text/plain; charset=utf-8'),
-        ));
+    final json = await _send(
+      () => _dio.post<String>(
+        Endpoints.user,
+        queryParameters: {'action': 'changePassword', 'token': _token},
+        data: jsonEncode({'userId': _userId, 'oldPassword': oldPassword, 'newPassword': newPassword}),
+        options: Options(contentType: 'text/plain; charset=utf-8'),
+      ),
+    );
     if (json is Map && '${json['http_response_code']}' != '200') {
       throw const ApiException('كلمة المرور الحالية غير صحيحة');
     }
@@ -244,12 +257,14 @@ class ApiRepository implements Repository {
   @override
   Future<String?> uploadProfileImage(String filePath) async {
     final bytes = await File(filePath).readAsBytes();
-    final json = await _send(() => _dio.post<String>(
-          Endpoints.uploadPic,
-          queryParameters: {'action': 'uploadProfilePic', 'token': _token, 'userId': _userId},
-          data: {'image': base64Encode(bytes)},
-          options: Options(contentType: Headers.formUrlEncodedContentType),
-        ));
+    final json = await _send(
+      () => _dio.post<String>(
+        Endpoints.uploadPic,
+        queryParameters: {'action': 'uploadProfilePic', 'token': _token, 'userId': _userId},
+        data: {'image': base64Encode(bytes)},
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      ),
+    );
     if (json is Map && '${json['http_response_code']}' != '200') {
       throw const ApiException('تعذر رفع الصورة، حاول مرة أخرى');
     }
@@ -259,10 +274,9 @@ class ApiRepository implements Repository {
   }
 
   @override
-  Uri servicesPage() => Uri.parse('${Endpoints.base}${Endpoints.servicesPage}').replace(queryParameters: {
-        'eid': _userId,
-        'token': _user?.token ?? '',
-      });
+  Uri servicesPage() =>
+      Uri.parse('${Endpoints.base}${Endpoints.servicesPage}')
+          .replace(queryParameters: {'eid': _userId, 'token': _user?.token ?? ''});
 
   // الخدمات لا تتوفر إلا كصفحات ويب داخل قائمة الخدمات، فتُقرأ بياناتها
   // بمتصفح مخفي (WebScraper) وتعرض بتصميم التطبيق.
@@ -272,11 +286,7 @@ class ApiRepository implements Repository {
   Future<Map> _scrape(String service, {List<String> more = const []}) async {
     final Object? out;
     try {
-      out = await WebScraper.instance.run(
-        servicesPage(),
-        actions: [ScrapeScripts.click(service), ...more],
-        extract: ScrapeScripts.extract,
-      );
+      out = await WebScraper.instance.service(servicesPage(), service, more: more, extract: ScrapeScripts.extract);
     } catch (_) {
       throw const ApiException('تعذر الوصول للخادم، تأكد من الاتصال بالإنترنت');
     }
@@ -284,97 +294,83 @@ class ApiRepository implements Repository {
     return out;
   }
 
+  /// صفوف أول جدول يطابق عنوانه [match]. إن لم يوجد جدول كهذا فالصفحة لم
+  /// تُقرأ كما يجب، فيظهر خطأ مع مقتطف منها بدل قائمة فارغة مضللة.
   static List<List<String>> _table(Map page, bool Function(String header) match) {
     final tables = page['tables'];
-    if (tables is! List) return const [];
+    if (tables is! List) throw ApiException('تعذر قراءة بيانات الخدمة من الخادم', _pageDetails(page));
     for (final t in tables) {
       if (t is! List || t.isEmpty) continue;
       final rows = t.map((r) => r is List ? r.map((c) => '$c').toList() : <String>[]).toList();
       if (match(rows.first.join(' '))) return rows.skip(1).where((r) => r.any((c) => c.trim().isNotEmpty)).toList();
     }
-    return const [];
+    // صفحة بلا جدول قد تعني عدم وجود بيانات، كما في «لا توجد دورات».
+    if (tables.isEmpty) return const [];
+    throw ApiException('تعذر قراءة بيانات الخدمة من الخادم', _pageDetails(page));
   }
 
   static String _clean(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
   @override
-  Future<List<Course>> courses() async {
+  Future<List<Course>> courses() => _cached('courses', () async {
     final page = await _scrape('الدورات');
     return [
       for (final r in _table(page, (h) => h.contains('الدورة')))
-        if (r.isNotEmpty) Course(_clean(r[0]), r.length > 1 ? parseDate(_clean(r[1])) : null, r.length > 2 ? parseDate(_clean(r[2])) : null),
+        if (r.isNotEmpty)
+          Course(
+            _clean(r[0]),
+            r.length > 1 ? parseDate(_clean(r[1])) : null,
+            r.length > 2 ? parseDate(_clean(r[2])) : null,
+          ),
     ];
-  }
+  });
 
   @override
-  Future<List<ThanksLetter>> thanksLetters() async {
+  Future<List<ThanksLetter>> thanksLetters() => _cached('thanks', () async {
     final page = await _scrape('التشكرات');
     return [
       for (final r in _table(page, (h) => h.contains('الكتاب')))
-        if (r.isNotEmpty) ThanksLetter(_clean(r[0]), r.length > 1 ? parseDate(_clean(r[1])) : null, r.length > 2 ? _clean(r[2]) : ''),
+        if (r.isNotEmpty)
+          ThanksLetter(_clean(r[0]), r.length > 1 ? parseDate(_clean(r[1])) : null, r.length > 2 ? _clean(r[2]) : ''),
     ];
-  }
+  });
 
-  /// صفحة النقاط قائمة من سطور «البند ثم الرقم» ومعها المجموع.
   @override
-  Future<HousingPoints> housingPoints() async {
+  Future<HousingPoints> housingPoints() => _cached('points', () async {
     final page = await _scrape('نقاطي');
-    final lines = '${page['text'] ?? ''}'.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
-    final items = <String, int>{};
-    int? total;
-    void add(String label, int v) {
-      if (label.contains('المجموع')) {
-        total = v;
-      } else if (!items.containsKey(label)) {
-        items[label] = v;
-      }
-    }
+    return ScrapeParsers.points('${page['text'] ?? ''}') ??
+        (throw ApiException('تعذر قراءة بيانات النقاط من الخادم', _pageDetails(page)));
+  });
 
-    final num = RegExp(r'^\d+$');
-    final inline = RegExp(r'^(\D+?)\s+(\d+)$');
-    for (var i = 0; i < lines.length; i++) {
-      final m = inline.firstMatch(lines[i]);
-      if (m != null) {
-        add(m[1]!.trim(), int.parse(m[2]!));
-      } else if (!num.hasMatch(lines[i]) && i + 1 < lines.length && num.hasMatch(lines[i + 1])) {
-        add(lines[i], int.parse(lines[i + 1]));
-        i++;
-      }
+  @override
+  Future<List<AttendanceDay>> attendance(int year, int month) => _cached('attendance-$year-$month', () async {
+    final page = await _scrape('الحضور', more: [ScrapeScripts.attendanceMonth(year, month)]);
+    final days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
+    if (days.isEmpty) throw ApiException('لا توجد بيانات حضور لهذا الشهر', _pageDetails(page));
+    return days;
+  });
+
+  /// نتائج صفحات الخدمات تُحفظ دقائق قليلة، لأن قراءتها أبطأ من طلبات
+  /// الخادم العادية وتطلبها الرئيسية وشاشات الخدمات معًا.
+  final _cache = <String, (DateTime, Future<Object?>)>{};
+  Future<T> _cached<T>(String key, Future<T> Function() load) {
+    final hit = _cache[key];
+    if (hit != null && DateTime.now().difference(hit.$1) < const Duration(minutes: 5)) {
+      return hit.$2.then((v) => v as T);
     }
-    if (items.isEmpty && total == null) throw const ApiException('تعذر قراءة بيانات النقاط من الخادم');
-    return HousingPoints(items, max: null, reportedTotal: total);
+    final f = load();
+    _cache[key] = (DateTime.now(), f);
+    // الفشل لا يُحفظ حتى تعيد المحاولة التالية الطلب من جديد.
+    f.then((_) {}, onError: (_) {
+      _cache.remove(key);
+    });
+    return f;
   }
 
-  /// كل خانة في جدول الحضور فيها رقم اليوم ثم وقت الدخول ثم وقت الخروج،
-  /// و«-:-» تعني عدم وجود بصمة، و N تعني يوم عطلة.
-  @override
-  Future<List<AttendanceDay>> attendance(int year, int month) async {
-    final page = await _scrape('الحضور', more: [ScrapeScripts.attendanceMonth(year, month)]);
-    final days = <int, AttendanceDay>{};
-    final time = RegExp(r'^(\d{1,2}):(\d{1,2})$');
-    String? fmt(String? t) {
-      final m = t == null ? null : time.firstMatch(t);
-      return m == null ? null : '${m[1]}:${m[2]!.padLeft(2, '0')}';
-    }
-
-    for (final r in _table(page, (h) => h.contains('الاحد') || h.contains('الأحد') || h.contains('السبت'))) {
-      for (final cell in r) {
-        final parts = cell.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-        if (parts.isEmpty) continue;
-        final d = int.tryParse(parts.first);
-        if (d == null || d < 1 || d > 31) continue;
-        final rest = parts.skip(1).toList();
-        final times = rest.where((p) => time.hasMatch(p)).toList();
-        days[d] = AttendanceDay(
-          DateTime(year, month, d),
-          checkIn: fmt(times.isNotEmpty ? times[0] : null),
-          checkOut: fmt(times.length > 1 ? times[1] : null),
-          holiday: rest.any((p) => p.toUpperCase() == 'N'),
-        );
-      }
-    }
-    if (days.isEmpty) throw const ApiException('لا توجد بيانات حضور لهذا الشهر');
-    return (days.keys.toList()..sort()).map((d) => days[d]!).toList();
+  /// مقتطف من الصفحة يظهر في «التفاصيل» حين يتعذر تفسيرها.
+  static String _pageDetails(Map page) {
+    final t = '${page['text'] ?? ''}'.replaceAll(RegExp(r'\n+'), ' | ');
+    return t.length > 1500 ? t.substring(0, 1500) : t;
   }
 
   @override

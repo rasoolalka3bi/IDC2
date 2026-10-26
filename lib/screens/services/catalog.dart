@@ -26,7 +26,7 @@ final services = <ServiceItem>[
   ServiceItem('التشكرات', Icons.workspace_premium_outlined, Tone.gold, (_) => const RecordsScreen(initialTab: 1)),
   ServiceItem('الدورات', Icons.menu_book_rounded, Tone.blue, (_) => const RecordsScreen(initialTab: 0)),
   ServiceItem('الأرباح', Icons.trending_up_rounded, Tone.gold, (_) => const GenericServiceScreen(title: 'الأرباح', icon: Icons.trending_up_rounded)),
-  ServiceItem('قطع الأراضي', Icons.location_on_outlined, Tone.green, (_) => const GenericServiceScreen(title: 'قطع الأراضي', icon: Icons.location_on_outlined)),
+  ServiceItem('قطع الأراضي', Icons.location_on_outlined, Tone.green, (_) => const ServicesWebScreen(title: 'قطع الأراضي', serviceName: 'قطع الأراضي')),
   ServiceItem('الاستبيان', Icons.poll_outlined, Tone.blue, (_) => const GenericServiceScreen(title: 'الاستبيان', icon: Icons.poll_outlined)),
   ServiceItem('الزمنيات', Icons.schedule_rounded, Tone.accent, (_) => const GenericServiceScreen(title: 'الزمنيات', icon: Icons.schedule_rounded)),
 ];

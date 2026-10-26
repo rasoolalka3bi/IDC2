@@ -21,7 +21,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late Future<SalarySlip?> _salary;
   late Future<List<Notice>> _news;
-  Future<_Stats?>? _stats;
+  Future<int>? _days, _points, _letters;
 
   @override
   void initState() {
@@ -34,26 +34,36 @@ class _HomeScreenState extends State<HomeScreen> {
     final repo = state.repo;
     _salary = _latestSalary(repo);
     _news = repo.notices();
-    _stats = repo.hasNativeServices ? _loadStats() : null;
+    if (repo.hasNativeServices) {
+      // الإحصاءات تُقرأ من صفحات الخدمات بعد انتهاء الراتب، لأنها أبطأ ولا
+      // يصح أن تؤخر الأهم. وكل رقم مستقل فلا يُخفي فشلُ أحدها البقية.
+      final now = DateTime.now();
+      final after = _salary.then((_) {}, onError: (_) {});
+      _days = after.then((_) => repo.attendance(now.year, now.month)).then((d) => d.where((x) => x.checkIn != null).length);
+      _points = after.then((_) => repo.housingPoints()).then((p) => p.total);
+      _letters = after.then((_) => repo.thanksLetters()).then((l) => l.length);
+    }
     state.refreshUnread();
   }
 
   Future<SalarySlip?> _latestSalary(Repository repo) async {
     final now = DateTime.now();
+    Object? error;
     for (var back = 0; back < 3; back++) {
       final d = DateTime(now.year, now.month - back);
-      final slip = await repo.salary(d.year, d.month);
-      if (!slip.isEmpty) return slip;
+      // محاولة ثانية عند الفشل، لأن أول طلب بعد فتح التطبيق قد ينقطع.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final slip = await repo.salary(d.year, d.month);
+          if (!slip.isEmpty) return slip;
+          break;
+        } catch (e) {
+          error = e;
+        }
+      }
     }
+    if (error != null) throw error;
     return null;
-  }
-
-  Future<_Stats?> _loadStats() async {
-    final repo = context.read<AppState>().repo;
-    final now = DateTime.now();
-    final r = await Future.wait([repo.attendance(now.year, now.month), repo.housingPoints(), repo.thanksLetters()]);
-    final days = (r[0] as List<AttendanceDay>).where((d) => d.checkIn != null).length;
-    return _Stats(days, (r[1] as HousingPoints).total, (r[2] as List).length);
   }
 
   Future<void> _refresh() async {
@@ -110,20 +120,14 @@ class _HomeScreenState extends State<HomeScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              if (_stats != null) ...[
-                FutureBuilder<_Stats?>(
-                  future: _stats,
-                  builder: (context, s) {
-                    final d = s.data;
-                    return Row(children: [
-                      _StatTile(value: d?.days, label: 'يوم حضور', color: c.green),
-                      const SizedBox(width: 10),
-                      _StatTile(value: d?.points, label: 'نقاط الإسكان', color: c.accent),
-                      const SizedBox(width: 10),
-                      _StatTile(value: d?.letters, label: 'كتب شكر', color: c.gold),
-                    ]);
-                  },
-                ),
+              if (_days != null) ...[
+                Row(children: [
+                  _StatTile(future: _days!, label: 'يوم حضور', color: c.green, service: services[0]),
+                  const SizedBox(width: 10),
+                  _StatTile(future: _points!, label: 'نقاط الإسكان', color: c.accent, service: services[1]),
+                  const SizedBox(width: 10),
+                  _StatTile(future: _letters!, label: 'كتب شكر', color: c.gold, service: services[2]),
+                ]),
                 const SizedBox(height: 14),
               ],
               AppCard(
@@ -182,11 +186,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-}
-
-class _Stats {
-  final int days, points, letters;
-  _Stats(this.days, this.points, this.letters);
 }
 
 class _BellButton extends StatelessWidget {
@@ -256,7 +255,7 @@ class _SalaryCard extends StatelessWidget {
                     const IconTile(Icons.account_balance_wallet_outlined),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(s.hasError ? 'تعذر تحميل الراتب، اضغط لفتح صفحة الراتب' : 'لا توجد بيانات راتب حديثة',
+                      child: Text(s.hasError ? 'تعذر تحميل الراتب: ${s.error}' : 'لا توجد بيانات راتب حديثة',
                           style: TextStyle(color: c.ink2, fontSize: 13.5)),
                     ),
                     Icon(Icons.chevron_right_rounded, color: c.ink3),
@@ -359,19 +358,24 @@ class _Mini extends StatelessWidget {
 }
 
 class _StatTile extends StatelessWidget {
-  final int? value;
+  final Future<int> future;
   final String label;
   final Color color;
-  const _StatTile({required this.value, required this.label, required this.color});
+  final ServiceItem service;
+  const _StatTile({required this.future, required this.label, required this.color, required this.service});
   @override
   Widget build(BuildContext context) {
     return Expanded(
       child: AppCard(
+        onTap: () => openService(context, service),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         child: Column(children: [
-          value == null
-              ? const Padding(padding: EdgeInsets.symmetric(vertical: 5), child: Skeleton(width: 30, height: 18))
-              : Text('$value', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700, color: color)),
+          FutureBuilder<int>(
+            future: future,
+            builder: (context, s) => s.connectionState != ConnectionState.done
+                ? const Padding(padding: EdgeInsets.symmetric(vertical: 5), child: Skeleton(width: 30, height: 18))
+                : Text(s.hasData ? '${s.data}' : '—', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700, color: color)),
+          ),
           const SizedBox(height: 2),
           Text(label, style: TextStyle(fontSize: 11.5, color: context.colors.ink3)),
         ]),

@@ -1,7 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/theme.dart';
+import '../data/api.dart';
 import '../data/models.dart';
 
 class AppCard extends StatelessWidget {
@@ -177,11 +179,46 @@ class ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final details = error is ApiException ? (error as ApiException).details : null;
     return EmptyState(
       icon: Icons.cloud_off_rounded,
       title: 'تعذر تحميل البيانات',
       subtitle: '$error',
-      action: OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh_rounded), label: const Text('إعادة المحاولة')),
+      action: Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.center, children: [
+        OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh_rounded), label: const Text('إعادة المحاولة')),
+        // ما قرأه التطبيق من صفحة الخادم، لمعرفة سبب تعذر تفسيرها.
+        if (details != null && details.isNotEmpty)
+          TextButton(onPressed: () => _showDetails(context, details), child: const Text('التفاصيل')),
+      ]),
+    );
+  }
+
+  static void _showDetails(BuildContext context, String details) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Expanded(child: Text('تفاصيل الخطأ', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+            TextButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: details));
+                showMessage(context, 'تم النسخ');
+              },
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              label: const Text('نسخ'),
+            ),
+          ]),
+          Text('انسخ هذا النص وأرسله للمطور.', style: TextStyle(color: context.colors.ink3, fontSize: 13)),
+          const SizedBox(height: 12),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .5),
+            child: SingleChildScrollView(child: SelectableText(details, style: const TextStyle(fontSize: 12.5, height: 1.6))),
+          ),
+        ]),
+      ),
     );
   }
 }

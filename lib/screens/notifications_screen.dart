@@ -18,14 +18,30 @@ class NotificationsScreen extends StatelessWidget {
     final c = context.colors;
     final state = context.watch<AppState>();
     final repo = state.repo;
+    final notices = PagedList<Notice>(
+      key: ValueKey('n${state.isDemo}'),
+      fetch: (p) async {
+        final list = await repo.notices(page: p);
+        if (p == 1) state.markAllRead();
+        return list;
+      },
+      itemBuilder: (context, n) => _NoticeTile(n),
+      empty: const EmptyState(icon: Icons.notifications_none_rounded, title: 'لا توجد تبليغات', subtitle: 'ستظهر هنا تبليغات وأخبار الشركة.'),
+    );
+    final unread = [
+      if (state.unread > 0) Padding(padding: const EdgeInsetsDirectional.only(end: 16), child: Pill('${state.unread} جديد')),
+    ];
+    // خادم الشركة لا يوفر قائمة بالاستفسارات (تصل كإشعارات فقط)، فلا يظهر
+    // تبويبها إلا في الوضع التجريبي.
+    if (!state.isDemo) {
+      return Scaffold(appBar: AppBar(title: const Text('التبليغات'), actions: unread), body: notices);
+    }
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('التبليغات'),
-          actions: [
-            if (state.unread > 0) Padding(padding: const EdgeInsetsDirectional.only(end: 16), child: Pill('${state.unread} جديد')),
-          ],
+          actions: unread,
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(56),
             child: Container(
@@ -45,16 +61,7 @@ class NotificationsScreen extends StatelessWidget {
           ),
         ),
         body: TabBarView(children: [
-          PagedList<Notice>(
-            key: ValueKey('n${state.isDemo}'),
-            fetch: (p) async {
-              final list = await repo.notices(page: p);
-              if (p == 1) state.markAllRead();
-              return list;
-            },
-            itemBuilder: (context, n) => _NoticeTile(n),
-            empty: const EmptyState(icon: Icons.notifications_none_rounded, title: 'لا توجد تبليغات', subtitle: 'ستظهر هنا تبليغات وأخبار الشركة.'),
-          ),
+          notices,
           PagedList<Inquiry>(
             key: ValueKey('i${state.isDemo}'),
             fetch: (p) => repo.inquiries(page: p),
