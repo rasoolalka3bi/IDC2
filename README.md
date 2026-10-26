@@ -27,6 +27,6 @@ flutter build apk --release --split-per-abi
 ```
 الملف الناتج في `build/app/outputs/flutter-apk/` (استخدم `app-arm64-v8a-release.apk` لمعظم الهواتف).
 
-عند رفع المشروع إلى GitHub يبني ملف `.github/workflows/build-apk.yml` ملف APK تلقائيًا، ويمكن تنزيله من تبويب Actions.
+عند رفع المشروع إلى GitHub يبني ملف `.github/workflows/build-apk.yml` ملف APK تلقائيًا مع كل تحديث، وينشره في صفحة Releases للمستودع.
 
 معرّف التطبيق `com.idc.employee` مختلف عن التطبيق الرسمي (`com.idc.app`) لتجنب التعارض. لنشره كتحديث للتطبيق الرسمي يجب استخدام المعرّف الرسمي ومفتاح التوقيع الخاص بالشركة.
