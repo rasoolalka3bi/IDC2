@@ -346,10 +346,11 @@ class KeyValueRow extends StatelessWidget {
       child: Row(children: [
         Expanded(child: Text(label, style: TextStyle(color: c.ink2, fontSize: 13.5))),
         const SizedBox(width: 12),
-        Flexible(
+        // القيم كلها تبدأ من العمود نفسه، والطويلة منها تلتف تحته.
+        Expanded(
           child: Text(
             value,
-            textAlign: TextAlign.left,
+            textAlign: TextAlign.start,
             style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: valueColor, fontFeatures: const [FontFeature.tabularFigures()]),
           ),
         ),
