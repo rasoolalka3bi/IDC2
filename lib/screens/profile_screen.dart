@@ -10,7 +10,7 @@ import 'change_password_screen.dart';
 import 'instructions_screen.dart';
 import 'shell.dart';
 
-const appVersion = '3.0.2';
+const appVersion = '3.0.3';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});

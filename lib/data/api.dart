@@ -142,6 +142,13 @@ class ApiRepository implements Repository {
       'password+md5': {'username': username, 'password': hashed},
     };
     final attempts = <String, Future<Response<String>> Function()>{};
+    // احتمال أن يتحقق الخادم من الدخول عبر ترويسة Authorization (Basic).
+    final basic = Options(headers: {'authorization': 'Basic ${base64Encode(utf8.encode('$username:$password'))}'});
+    final basicForm = basic.copyWith(contentType: Headers.formUrlEncodedContentType);
+    attempts['basic/form'] = () => _dio.post<String>(Endpoints.login, data: variants['pass'], options: basicForm);
+    attempts['basic/form2'] = () => _dio.post<String>(Endpoints.login, data: variants['password'], options: basicForm);
+    attempts['basic/empty'] = () => _dio.post<String>(Endpoints.login, options: basic);
+    attempts['basic/get'] = () => _dio.get<String>(Endpoints.login, options: basic);
     for (final v in variants.entries) {
       final f = v.value;
       attempts['${v.key}/form'] = () => _dio.post<String>(Endpoints.login,
