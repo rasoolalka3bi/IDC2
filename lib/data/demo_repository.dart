@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'models.dart';
 import 'repository.dart';
 
@@ -34,6 +36,9 @@ class DemoRepository implements Repository {
 
   @override
   Future<void> resetPassword({required String username, required String phone}) => Future.delayed(_delay);
+
+  @override
+  Future<Uint8List?> salaryImage(int year, int month) async => null;
 
   @override
   Future<SalarySlip> salary(int year, int month) async {

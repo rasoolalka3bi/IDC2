@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'models.dart';
 
 /// واجهة موحدة لمصدر البيانات. لها تنفيذان: خادم الشركة (ApiRepository)
@@ -9,6 +11,9 @@ abstract class Repository {
   Future<void> resetPassword({required String username, required String phone});
 
   Future<SalarySlip> salary(int year, int month);
+
+  /// صورة القصاصة الرسمية كما يصدرها خادم الشركة، أو null إن لم تتوفر.
+  Future<Uint8List?> salaryImage(int year, int month);
 
   Future<List<Notice>> notices({int page = 1});
   Future<int> unreadCount();

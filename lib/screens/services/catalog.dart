@@ -34,6 +34,6 @@ void openService(BuildContext context, ServiceItem s) {
   final repo = context.read<AppState>().repo;
   final builder = repo.hasNativeServices && s.native != null
       ? s.native!
-      : (BuildContext _) => ServicesWebScreen(title: s.title);
+      : (BuildContext _) => ServicesWebScreen(title: s.title, serviceName: s.title);
   Navigator.of(context).push(MaterialPageRoute(builder: builder));
 }

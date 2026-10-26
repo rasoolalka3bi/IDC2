@@ -14,7 +14,11 @@ class ServicesWebScreen extends StatefulWidget {
 
   /// صفحة أخرى من خادم الشركة بدل صفحة الخدمات، مثل صفحة استعادة كلمة المرور.
   final Uri? url;
-  const ServicesWebScreen({super.key, required this.title, this.url});
+
+  /// اسم الخدمة كما يظهر في قائمة الخدمات على الخادم. عند تمريره تُفتح
+  /// صفحة الخدمة مباشرة بدل عرض القائمة.
+  final String? serviceName;
+  const ServicesWebScreen({super.key, required this.title, this.url, this.serviceName});
 
   @override
   State<ServicesWebScreen> createState() => _ServicesWebScreenState();
@@ -24,6 +28,10 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
   WebViewController? _web;
   int _progress = 0;
   bool _failed = false;
+
+  /// هل جرى الانتقال إلى صفحة الخدمة المطلوبة داخل القائمة؟
+  bool _opening = false;
+  bool _ready = false;
 
   @override
   void didChangeDependencies() {
@@ -45,9 +53,12 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
       ..setNavigationDelegate(NavigationDelegate(
         onProgress: (p) => mounted ? setState(() => _progress = p) : null,
         onPageStarted: (_) => mounted ? setState(() => _failed = false) : null,
-        onPageFinished: (_) => _web?.runJavaScript(
-          "(function(){var s=document.createElement('style');s.innerHTML=${_jsString(css)};document.head.appendChild(s);})();",
-        ),
+        onPageFinished: (_) async {
+          await _web?.runJavaScript(
+            "(function(){var s=document.createElement('style');s.innerHTML=${_jsString(css)};document.head.appendChild(s);})();",
+          );
+          await _openService();
+        },
         onWebResourceError: (e) {
           if (e.isForMainFrame ?? true) setState(() => _failed = true);
         },
@@ -60,6 +71,51 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
       ))
       ..loadRequest(widget.url ?? state.repo.servicesPage());
   }
+
+  /// تفتح صفحة الخدمة من قائمة الخدمات بالضغط على رابطها، لأن الخادم لا
+  /// يوفر عنوانًا مباشرًا لكل خدمة.
+  Future<void> _openService() async {
+    final name = widget.serviceName;
+    if (name == null || widget.url != null) {
+      if (mounted && !_ready) setState(() => _ready = true);
+      return;
+    }
+    if (_opening) {
+      // اكتمل تحميل صفحة الخدمة بعد الضغط على رابطها.
+      if (mounted && !_ready) setState(() => _ready = true);
+      return;
+    }
+    final res = await _web?.runJavaScriptReturningResult(_clickScript(name));
+    final ok = '$res'.contains('ok');
+    if (!mounted) return;
+    setState(() {
+      _opening = ok;
+      _ready = !ok;
+    });
+  }
+
+  /// يبحث عن عنصر في القائمة يطابق اسم الخدمة ويضغط عليه. تُوحَّد صيغ
+  /// الألف والياء والتاء المربوطة لأن تسميات الخادم تختلف عن تسميات التطبيق.
+  static String _clickScript(String name) => '''
+(function(){
+  function norm(s){return (s||'').replace(/[أإآا]/g,'ا').replace(/[ىي]/g,'ي').replace(/[ةه]/g,'ه')
+    .replace(/[^\u0621-\u064A]/g,'');}
+  var want=norm(${_jsString(name)});
+  var els=document.querySelectorAll('a,button,[onclick],li,.card,.item,div');
+  for(var pass=0;pass<2;pass++){
+    for(var i=0;i<els.length;i++){
+      var e=els[i];
+      if(e.querySelector && e.querySelector('a,button,[onclick]')) continue;
+      var t=norm(e.innerText||e.textContent);
+      if(!t) continue;
+      if(pass===0 ? t===want : (t.indexOf(want)>=0 && t.length<=want.length+10)){
+        e.click();
+        return 'ok';
+      }
+    }
+  }
+  return 'no';
+})();''';
 
   static String _hex(Color c) => '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
 
@@ -102,7 +158,10 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
             )
           : _failed
               ? ErrorState(error: 'تعذر الوصول للخادم، تأكد من الاتصال بالإنترنت', onRetry: web.reload)
-              : WebViewWidget(controller: web),
+              : Stack(children: [
+                  Offstage(offstage: !_ready, child: WebViewWidget(controller: web)),
+                  if (!_ready) const Center(child: CircularProgressIndicator()),
+                ]),
     );
   }
 }

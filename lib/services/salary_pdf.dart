@@ -8,9 +8,28 @@ import '../app/format.dart';
 import '../data/models.dart';
 import '../widgets/common.dart';
 
-/// يولّد قصاصة الراتب بصيغة PDF (تحل محل حفظ الصورة في التطبيق القديم).
+/// قصاصة الراتب بصيغة PDF. تُستخدم القصاصة الرسمية الصادرة من خادم الشركة
+/// عند توفرها، لأنها النموذج المعتمد، ويُستعاض عنها بتصميم التطبيق في الوضع
+/// التجريبي أو إن تعذر جلبها.
 class SalaryPdf {
-  static Future<Uint8List> build(SalarySlip slip) async {
+  static Future<Uint8List> build(SalarySlip slip, {Uint8List? official}) async {
+    if (official != null) return _fromImage(official);
+    return _designed(slip);
+  }
+
+  /// يضع صورة النموذج الرسمي في صفحة A4 بحجمها الكامل.
+  static Future<Uint8List> _fromImage(Uint8List image) async {
+    final doc = pw.Document();
+    final img = pw.MemoryImage(image);
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(16),
+      build: (_) => pw.Center(child: pw.Image(img, fit: pw.BoxFit.contain)),
+    ));
+    return doc.save();
+  }
+
+  static Future<Uint8List> _designed(SalarySlip slip) async {
     final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/IBMPlexSansArabic-Regular.ttf'));
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/IBMPlexSansArabic-Bold.ttf'));
     final logo = pw.MemoryImage((await rootBundle.load('assets/images/logo.png')).buffer.asUint8List());
@@ -81,18 +100,18 @@ class SalaryPdf {
 
   static String _name(SalarySlip s) => 'salary-${s.year}-${s.month.toString().padLeft(2, '0')}.pdf';
 
-  static Future<void> save(BuildContext context, SalarySlip slip) async {
+  static Future<void> save(BuildContext context, SalarySlip slip, {Uint8List? official}) async {
     try {
-      final bytes = await build(slip);
+      final bytes = await build(slip, official: official);
       await Printing.layoutPdf(onLayout: (_) async => bytes, name: _name(slip));
     } catch (_) {
       if (context.mounted) showMessage(context, 'تعذر إنشاء ملف القصاصة');
     }
   }
 
-  static Future<void> share(BuildContext context, SalarySlip slip) async {
+  static Future<void> share(BuildContext context, SalarySlip slip, {Uint8List? official}) async {
     try {
-      final bytes = await build(slip);
+      final bytes = await build(slip, official: official);
       await Printing.sharePdf(bytes: bytes, filename: _name(slip));
     } catch (_) {
       if (context.mounted) showMessage(context, 'تعذر مشاركة القصاصة');

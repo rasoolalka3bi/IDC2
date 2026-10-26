@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
@@ -161,6 +162,26 @@ class ApiRepository implements Repository {
           },
         ));
     return SalarySlip.fromJson(json, year: year, month: month);
+  }
+
+  /// القصاصة الرسمية تُولَّد على الخادم كصورة، وهي نفسها المعتمدة للطباعة.
+  /// العنوان يُبنى بنفس صيغة التطبيق الأصلي، بما فيها تكرار علامة &.
+  @override
+  Future<Uint8List?> salaryImage(int year, int month) async {
+    try {
+      final res = await _dio.get<List<int>>(
+        '${Endpoints.salaryImage}?eid=$_userId&&salaryMonth=$month&&salaryYear=$year'
+        '&&token=${Uri.encodeQueryComponent(_token)}',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = res.data;
+      if (bytes == null || bytes.length < 1024) return null;
+      final type = '${res.headers.value('content-type')}';
+      if (!type.startsWith('image/')) return null;
+      return Uint8List.fromList(bytes);
+    } on DioException {
+      return null;
+    }
   }
 
   static const _noticesPerPage = 10;

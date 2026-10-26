@@ -142,13 +142,39 @@ class _MonthChip extends StatelessWidget {
   }
 }
 
-class _SlipView extends StatelessWidget {
+class _SlipView extends StatefulWidget {
   final SalarySlip slip;
   const _SlipView({required this.slip});
 
   @override
+  State<_SlipView> createState() => _SlipViewState();
+}
+
+class _SlipViewState extends State<_SlipView> {
+  bool _busy = false;
+
+  /// القصاصة المعتمدة تأتي كصورة من الخادم، فتُجلب عند الحفظ أو المشاركة
+  /// ويُستعاض عنها بتصميم التطبيق إن تعذر ذلك.
+  Future<void> _export(SalarySlip slip, {required bool share}) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final official = await context.read<AppState>().repo.salaryImage(slip.year, slip.month);
+      if (!mounted) return;
+      if (share) {
+        await SalaryPdf.share(context, slip, official: official);
+      } else {
+        await SalaryPdf.save(context, slip, official: official);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final slip = widget.slip;
     final pay = slip.totalPayments;
     final ded = slip.totalDeductions;
     final total = pay + ded;
@@ -195,8 +221,10 @@ class _SlipView extends StatelessWidget {
         Row(children: [
           Expanded(
             child: FilledButton.icon(
-              onPressed: () => SalaryPdf.save(context, slip),
-              icon: const Icon(Icons.picture_as_pdf_outlined, size: 19),
+              onPressed: _busy ? null : () => _export(slip, share: false),
+              icon: _busy
+                  ? const SizedBox(width: 19, height: 19, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                  : const Icon(Icons.picture_as_pdf_outlined, size: 19),
               label: const Text('حفظ PDF'),
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
             ),
@@ -204,7 +232,7 @@ class _SlipView extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: FilledButton.icon(
-              onPressed: () => SalaryPdf.share(context, slip),
+              onPressed: _busy ? null : () => _export(slip, share: true),
               icon: const Icon(Icons.ios_share_rounded, size: 19),
               label: const Text('مشاركة'),
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48), backgroundColor: c.surface, foregroundColor: c.ink),
