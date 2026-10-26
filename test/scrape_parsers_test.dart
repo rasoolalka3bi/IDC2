@@ -54,4 +54,11 @@ N
     expect(p.items['الخدمة'], 20);
     expect(p.items.length, 4);
   });
+
+  test('المجموع مكتوب بالكشيدة لا يُعد بندًا', () {
+    const text = 'المجمـوع :\n32\nالشهادة\n6\nالدرجة\n6\nالخدمة\n20\nالزوجية\n0';
+    final p = ScrapeParsers.points(text)!;
+    expect(p.total, 32);
+    expect(p.items.length, 4);
+  });
 }

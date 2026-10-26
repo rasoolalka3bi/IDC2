@@ -267,13 +267,7 @@ class _SalaryCard extends StatelessWidget {
                     Icon(Icons.chevron_right_rounded, color: c.ink3),
                   ]),
                   const SizedBox(height: 6),
-                  _Amount(slip.net),
-                  const SizedBox(height: 14),
-                  Row(children: [
-                    Expanded(child: _Mini(label: 'المدفوعات', value: money(slip.totalPayments), color: c.green)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _Mini(label: 'الاستقطاعات', value: money(slip.totalDeductions), color: c.red)),
-                  ]),
+                  _Amounts(slip),
                 ]);
               },
             ),
@@ -284,16 +278,17 @@ class _SalaryCard extends StatelessWidget {
   }
 }
 
-/// صافي الراتب مخفي بنجمات، ويظهر ما دام الإصبع ضاغطًا على أيقونة العين.
-class _Amount extends StatefulWidget {
-  final double value;
-  const _Amount(this.value);
+/// صافي الراتب والمدفوعات والاستقطاعات مخفية بنجمات، وتظهر معًا ما دام
+/// الإصبع ضاغطًا على أيقونة العين.
+class _Amounts extends StatefulWidget {
+  final SalarySlip slip;
+  const _Amounts(this.slip);
 
   @override
-  State<_Amount> createState() => _AmountState();
+  State<_Amounts> createState() => _AmountsState();
 }
 
-class _AmountState extends State<_Amount> {
+class _AmountsState extends State<_Amounts> {
   bool _show = false;
 
   void _set(bool v) {
@@ -304,16 +299,30 @@ class _AmountState extends State<_Amount> {
   Widget build(BuildContext context) {
     final c = context.colors;
     const style = TextStyle(fontSize: 30, fontWeight: FontWeight.w700, letterSpacing: -.5);
+    const hidden = '٭٭٭٭٭٭٭';
+    final slip = widget.slip;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _net(c, style, hidden),
+      const SizedBox(height: 14),
+      Row(children: [
+        Expanded(child: _Mini(label: 'المدفوعات', value: _show ? money(slip.totalPayments) : hidden, color: c.green)),
+        const SizedBox(width: 10),
+        Expanded(child: _Mini(label: 'الاستقطاعات', value: _show ? money(slip.totalDeductions) : hidden, color: c.red)),
+      ]),
+    ]);
+  }
+
+  Widget _net(AppColors c, TextStyle style, String hidden) {
     return Row(children: [
       _show
           ? Text.rich(
               TextSpan(children: [
-                TextSpan(text: money(widget.value), style: style),
+                TextSpan(text: money(widget.slip.net), style: style),
                 TextSpan(text: '  د.ع', style: TextStyle(fontSize: 14, color: c.ink3)),
               ]),
               style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
             )
-          : Text('٭٭٭٭٭٭٭', style: style.copyWith(letterSpacing: 2, height: 1.35)),
+          : Text(hidden, style: style.copyWith(letterSpacing: 2, height: 1.35)),
       const SizedBox(width: 10),
       // أحداث اللمس المباشرة لا تتأثر بالضغط المطول، فيبقى المبلغ ظاهرًا
       // ما دام الإصبع على العين. ويبتلع onTap الضغطة حتى لا تفتح البطاقة.

@@ -56,8 +56,11 @@ class ScrapeParsers {
     final ls = lines(text);
     final items = <String, int>{};
     int? total;
-    void add(String label, int v) {
-      if (label.contains('المجموع')) {
+    void add(String raw, int v) {
+      // تُزال الكشيدة والحركات لأن الخادم يكتب «المجمـوع» مثلًا، ويُطابق
+      // المجموع على الحروف وحدها.
+      final label = raw.replaceAll(RegExp('[\u0640\u064B-\u065F]'), '').trim();
+      if (label.replaceAll(RegExp('[^\u0621-\u064A]'), '').contains('مجموع')) {
         total = v;
       } else if (!items.containsKey(label)) {
         items[label] = v;

@@ -37,17 +37,19 @@ class WebScraper {
     var started = false;
     final c = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (_) => started = true,
-        onPageFinished: (_) {
-          if (!finished.isCompleted) finished.complete();
-        },
-        onWebResourceError: (e) {
-          if ((e.isForMainFrame ?? true) && !finished.isCompleted) {
-            finished.completeError(Exception(e.description));
-          }
-        },
-      ));
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (_) => started = true,
+          onPageFinished: (_) {
+            if (!finished.isCompleted) finished.complete();
+          },
+          onWebResourceError: (e) {
+            if ((e.isForMainFrame ?? true) && !finished.isCompleted) {
+              finished.completeError(Exception(e.description));
+            }
+          },
+        ),
+      );
     _add(c);
     try {
       await c.loadRequest(url);
@@ -55,7 +57,15 @@ class WebScraper {
       for (var i = 0; i < actions.length; i++) {
         started = false;
         finished = Completer();
-        final res = _text(await c.runJavaScriptReturningResult(actions[i]));
+        var res = _text(await c.runJavaScriptReturningResult(actions[i]));
+        // خطوة انتظار: تُعاد حتى يظهر المطلوب أو تنتهي المهلة ثم يُكمل.
+        for (var t = 0; res.contains('retry') && t < 40; t++) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          try {
+            res = _text(await c.runJavaScriptReturningResult(actions[i]));
+          } catch (_) {} // الصفحة ما زالت تُحمَّل
+        }
+        if (res.contains('retry')) res = 'same';
         if (res.contains('same')) continue;
         if (!res.contains('ok')) return null;
         // ننتظر بدء تحميل صفحة جديدة إن كانت الخطوة تفتح صفحة، وإلا نكمل.
@@ -69,27 +79,6 @@ class WebScraper {
         }
       }
       return _decode(await c.runJavaScriptReturningResult(extract));
-    } finally {
-      _remove(c);
-    }
-  }
-
-  /// يفتح [url] وينتظر أول رسالة ترسلها الصفحة عبر قناة ReceiveMessage،
-  /// كما تفعل صفحة قصاصة الراتب عند انتهاء توليد صورتها.
-  Future<String?> waitForMessage(Uri url, {Duration timeout = const Duration(seconds: 45)}) async {
-    final got = Completer<String?>();
-    final c = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel('ReceiveMessage', onMessageReceived: (m) {
-        if (!got.isCompleted) got.complete(m.message);
-      })
-      ..setNavigationDelegate(NavigationDelegate(onWebResourceError: (e) {
-        if ((e.isForMainFrame ?? true) && !got.isCompleted) got.complete(null);
-      }));
-    _add(c);
-    try {
-      await c.loadRequest(url);
-      return await got.future.timeout(timeout, onTimeout: () => null);
     } finally {
       _remove(c);
     }
@@ -112,23 +101,32 @@ class WebScraper {
 }
 
 /// يضع متصفحات [WebScraper] بحجم الشاشة خلف واجهة التطبيق فلا يراها
-/// المستخدم، لأن أندرويد لا يحمّل الصفحات في متصفح غير معروض، وبعض الصفحات
-/// (مثل قصاصة الراتب) تحتاج عرضًا حقيقيًا لترسم محتواها.
+/// المستخدم، لأن أندرويد لا يحمّل الصفحات في متصفح غير معروض.
 class WebScraperHost extends StatelessWidget {
   final Widget child;
   const WebScraperHost({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Stack(textDirection: TextDirection.rtl, children: [
-      ValueListenableBuilder<List<WebViewController>>(
-        valueListenable: WebScraper.instance.controllers,
-        builder: (context, list, _) => Stack(children: [
-          for (final c in list) Positioned.fill(child: IgnorePointer(child: WebViewWidget(key: ObjectKey(c), controller: c))),
-        ]),
-      ),
-      child,
-    ]);
+    return Stack(
+      textDirection: TextDirection.rtl,
+      children: [
+        ValueListenableBuilder<List<WebViewController>>(
+          valueListenable: WebScraper.instance.controllers,
+          builder: (context, list, _) => Stack(
+            children: [
+              for (final c in list)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: WebViewWidget(key: ObjectKey(c), controller: c),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        child,
+      ],
+    );
   }
 }
 
@@ -138,7 +136,8 @@ class ScrapeScripts {
 
   /// يضغط على رابط الخدمة في قائمة الخدمات. تُوحَّد صيغ الألف والياء
   /// والتاء المربوطة لأن تسميات الخادم تختلف عن تسميات التطبيق.
-  static String click(String name) => '''
+  static String click(String name) =>
+      '''
 (function(){
   function norm(s){return (s||'').replace(/[أإآا]/g,'ا').replace(/[ىي]/g,'ي').replace(/[ةه]/g,'ه')
     .replace(/[^\\u0621-\\u064A]/g,'');}
@@ -159,8 +158,10 @@ class ScrapeScripts {
   return 'no';
 })();''';
 
-  /// يختار السنة والشهر في صفحة الحضور ثم يضغط «عرض».
-  static String attendanceMonth(int year, int month) => '''
+  /// يختار السنة والشهر في صفحة الحضور ثم يضغط «عرض» دائمًا، لأن التقويم
+  /// لا يظهر إلا بعد الضغط. يُحفظ نص الصفحة قبل الضغط ليُعرف تغيّره.
+  static String attendanceMonth(int year, int month) =>
+      '''
 (function(){
   var sels=document.querySelectorAll('select');
   function pick(sel, v){
@@ -172,22 +173,28 @@ class ScrapeScripts {
     }
     return false;
   }
-  var y=false,m=false,changed=false;
-  function pick2(sel,v){var before=sel.selectedIndex; var ok=pick(sel,v); if(ok&&sel.selectedIndex!==before) changed=true; return ok;}
   for(var i=0;i<sels.length;i++){
     var s=sels[i], hasYear=false;
     for(var j=0;j<s.options.length;j++){ if(parseInt(s.options[j].text,10)>1900) hasYear=true; }
-    if(hasYear) y=pick2(s,$year)||y; else m=pick2(s,$month)||m;
+    pick(s, hasYear ? $year : $month);
   }
-  // إن لم توجد القوائم أو كان الشهر معروضًا أصلًا يُقرأ كما هو.
-  if(!y||!m||!changed) return 'same';
+  window.__idcBefore=(document.body.innerText||'');
   var btns=document.querySelectorAll('button,input[type=submit],input[type=button],a');
   for(var k=0;k<btns.length;k++){
     var t=(btns[k].innerText||btns[k].value||'').trim();
     if(t.indexOf('عرض')>=0){ btns[k].click(); return 'ok'; }
   }
-  var f=document.querySelector('form'); if(f){ f.submit(); }
-  return 'ok';
+  var f=document.querySelector('form'); if(f){ f.submit(); return 'ok'; }
+  return 'same';
+})();''';
+
+  /// ينتظر ظهور تقويم الحضور (أسماء أيام الأسبوع) بعد الضغط على «عرض»،
+  /// سواء فُتحت صفحة جديدة أو حُدّث جزء من الصفحة نفسها.
+  static const waitForCalendar = '''
+(function(){
+  var t=document.body ? (document.body.innerText||'') : '';
+  if(window.__idcBefore!==undefined && t===window.__idcBefore) return 'retry';
+  return /(الأحد|الاحد|السبت|الخميس|الاثنين|الإثنين)/.test(t) ? 'same' : 'retry';
 })();''';
 
   /// يجمع الجداول ونص الصفحة كما هي ليفسرها التطبيق.

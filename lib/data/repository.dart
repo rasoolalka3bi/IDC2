@@ -12,8 +12,11 @@ abstract class Repository {
 
   Future<SalarySlip> salary(int year, int month);
 
-  /// صورة القصاصة الرسمية كما يصدرها خادم الشركة، أو null إن لم تتوفر.
-  Future<Uint8List?> salaryImage(int year, int month);
+  /// صفحة الخادم التي تولّد صورة القصاصة الرسمية، أو null في الوضع التجريبي.
+  Uri? salaryImagePage(int year, int month);
+
+  /// ينزّل صورة القصاصة التي أرسلت الصفحة رابطها [message] (أو بياناتها).
+  Future<Uint8List?> downloadSalaryImage(String message, int year, int month);
 
   Future<List<Notice>> notices({int page = 1});
   Future<int> unreadCount();

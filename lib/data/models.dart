@@ -98,10 +98,17 @@ class SalaryItem {
   final String value;
   const SalaryItem(this.label, this.value);
 
-  /// القيمة كرقم إن أمكن (تُزال الفواصل والرموز).
+  /// القيمة كرقم إن أمكن (تُزال فواصل الآلاف والرموز). بعض الحقول يأتي
+  /// معها عمود صفر منفصل مثل «0 18480»، فيُعتمد الرقم غير الصفري ولا تُدمج
+  /// الأرقام معًا.
   double? get amount {
-    final cleaned = value.replaceAll(RegExp(r'[^0-9.\-٠-٩]'), '');
-    return double.tryParse(_toLatinDigits(cleaned));
+    final numbers = RegExp(r'-?[0-9٠-٩][0-9٠-٩,٬.]*')
+        .allMatches(value)
+        .map((m) => double.tryParse(_toLatinDigits(m[0]!).replaceAll(RegExp('[,٬]'), '')))
+        .whereType<double>()
+        .toList();
+    if (numbers.isEmpty) return null;
+    return numbers.firstWhere((n) => n != 0, orElse: () => 0);
   }
 }
 

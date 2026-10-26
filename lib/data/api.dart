@@ -175,22 +175,28 @@ class ApiRepository implements Repository {
 
   /// القصاصة الرسمية كما في التطبيق الأصلي: تُفتح صفحة salary_image.php
   /// فتولّد صورة النموذج على الخادم وترسل رابطها عبر قناة ReceiveMessage،
-  /// ثم تُنزَّل الصورة ويُطلب من الخادم حذف نسختها المؤقتة.
+  /// ثم تُنزَّل الصورة ويُطلب من الخادم حذف نسختها المؤقتة. يُبنى العنوان
+  /// حرفيًا كالتطبيق الأصلي، والرمز دون ترميز إضافي.
   @override
-  Future<Uint8List?> salaryImage(int year, int month) async {
-    final url = Uri.parse(
-      '${Endpoints.base}${Endpoints.salaryImage}?eid=$_userId&&salaryMonth=$month'
-      '&&salaryYear=$year&&token=${Uri.encodeQueryComponent(_token)}',
-    );
-    final msg = (await WebScraper.instance.waitForMessage(url))?.trim();
-    if (msg == null || msg.isEmpty) return null;
-    final imageUrl = Uri.parse(Endpoints.base).resolve(msg.replaceAll('"', ''));
+  Uri salaryImagePage(int year, int month) => Uri.parse(
+    '${Endpoints.base}${Endpoints.salaryImage}?eid=$_userId&&salaryMonth=$month'
+    '&&salaryYear=$year&&token=$_token',
+  );
+
+  @override
+  Future<Uint8List?> downloadSalaryImage(String message, int year, int month) async {
+    final msg = message.trim().replaceAll('"', '');
+    if (msg.isEmpty) return null;
     try {
+      if (msg.startsWith('data:')) return UriData.parse(msg).contentAsBytes();
+      final imageUrl = Uri.parse(Endpoints.base).resolve(msg);
       final res = await _dio.getUri<List<int>>(imageUrl, options: Options(responseType: ResponseType.bytes));
       final bytes = res.data;
       if (bytes == null || bytes.isEmpty) return null;
       return Uint8List.fromList(bytes);
     } on DioException {
+      return null;
+    } on FormatException {
       return null;
     } finally {
       _dio.get<String>('delete_salary_image.php?action=deleteSalaryImage&imageName=$_userId$month$year').ignore();
@@ -344,7 +350,7 @@ class ApiRepository implements Repository {
 
   @override
   Future<List<AttendanceDay>> attendance(int year, int month) => _cached('attendance-$year-$month', () async {
-    final page = await _scrape('الحضور', more: [ScrapeScripts.attendanceMonth(year, month)]);
+    final page = await _scrape('الحضور', more: [ScrapeScripts.attendanceMonth(year, month), ScrapeScripts.waitForCalendar]);
     final days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
     if (days.isEmpty) throw ApiException('لا توجد بيانات حضور لهذا الشهر', _pageDetails(page));
     return days;

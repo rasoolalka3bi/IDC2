@@ -93,4 +93,12 @@ void main() {
     expect(slip.totalDeductions, 30800);
     expect(slip.net, 1815000);
   });
+
+  test('عمود الصفر المنفصل لا يُدمج مع المبلغ', () {
+    expect(const SalaryItem('ت.ضمان صحي', '0 18480').amount, 18480);
+    expect(const SalaryItem('ضريبة الدخل', '1,667 0').amount, 1667);
+    expect(const SalaryItem('الراتب', '1,815,000').amount, 1815000);
+    expect(const SalaryItem('خصم', '0').amount, 0);
+    expect(const SalaryItem('ملاحظة', 'لا يوجد').amount, isNull);
+  });
 }

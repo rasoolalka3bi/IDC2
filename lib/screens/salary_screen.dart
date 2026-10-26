@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +8,7 @@ import '../app/format.dart';
 import '../app/theme.dart';
 import '../data/models.dart';
 import '../services/salary_pdf.dart';
+import 'salary_image_screen.dart';
 import '../widgets/common.dart';
 
 class SalaryScreen extends StatefulWidget {
@@ -159,14 +162,13 @@ class _SlipViewState extends State<_SlipView> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final state = context.read<AppState>();
-      final official = await state.repo.salaryImage(slip.year, slip.month);
-      if (!mounted) return;
       // بالحساب الحقيقي تُطبع القصاصة الرسمية فقط، وتصميم التطبيق للوضع التجريبي.
-      if (official == null && !state.isDemo) {
-        showMessage(context, 'تعذر جلب القصاصة الرسمية من الخادم، حاول مرة أخرى');
-        return;
+      Uint8List? official;
+      if (!context.read<AppState>().isDemo) {
+        official = await SalaryImageScreen.open(context, slip.year, slip.month);
+        if (official == null || !mounted) return;
       }
+      if (!mounted) return;
       if (share) {
         await SalaryPdf.share(context, slip, official: official);
       } else {
