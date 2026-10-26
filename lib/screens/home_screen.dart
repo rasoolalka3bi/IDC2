@@ -285,23 +285,60 @@ class _SalaryCard extends StatelessWidget {
   }
 }
 
-class _Amount extends StatelessWidget {
+/// صافي الراتب مخفي بنجمات، ويظهر ما دام الإصبع ضاغطًا على أيقونة العين.
+class _Amount extends StatefulWidget {
   final double value;
   const _Amount(this.value);
+
+  @override
+  State<_Amount> createState() => _AmountState();
+}
+
+class _AmountState extends State<_Amount> {
+  bool _show = false;
+
+  void _set(bool v) {
+    if (_show != v) setState(() => _show = v);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: value),
-      duration: const Duration(milliseconds: 900),
-      curve: Curves.easeOutCubic,
-      builder: (context, v, _) => Text.rich(
-        TextSpan(children: [
-          TextSpan(text: money(v), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, letterSpacing: -.5)),
-          TextSpan(text: '  د.ع', style: TextStyle(fontSize: 14, color: context.colors.ink3)),
-        ]),
-        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+    final c = context.colors;
+    const style = TextStyle(fontSize: 30, fontWeight: FontWeight.w700, letterSpacing: -.5);
+    return Row(children: [
+      _show
+          ? TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: widget.value),
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.easeOutCubic,
+              builder: (context, v, _) => Text.rich(
+                TextSpan(children: [
+                  TextSpan(text: money(v), style: style),
+                  TextSpan(text: '  د.ع', style: TextStyle(fontSize: 14, color: c.ink3)),
+                ]),
+                style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+              ),
+            )
+          : Text('٭٭٭٭٭٭٭', style: style.copyWith(letterSpacing: 2, height: 1.35)),
+      const SizedBox(width: 10),
+      // يبتلع الضغطة حتى لا تفتح البطاقة صفحة الراتب عند إظهار المبلغ.
+      GestureDetector(
+        onTap: () {},
+        onTapDown: (_) => _set(true),
+        onTapUp: (_) => _set(false),
+        onTapCancel: () => _set(false),
+        onLongPressEnd: (_) => _set(false),
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(
+            _show ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            size: 22,
+            color: c.ink3,
+          ),
+        ),
       ),
-    );
+    ]);
   }
 }
 
