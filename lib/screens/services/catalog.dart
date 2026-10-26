@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../app/app_state.dart';
 import '../../widgets/common.dart';
 import 'attendance_screen.dart';
+import 'generic_service_screen.dart';
 import 'housing_points_screen.dart';
 import 'records_screen.dart';
 import 'services_web_screen.dart';
@@ -24,10 +25,10 @@ final services = <ServiceItem>[
   ServiceItem('نقاطي', Icons.home_work_outlined, Tone.accent, (_) => const HousingPointsScreen()),
   ServiceItem('التشكرات', Icons.workspace_premium_outlined, Tone.gold, (_) => const RecordsScreen(initialTab: 1)),
   ServiceItem('الدورات', Icons.menu_book_rounded, Tone.blue, (_) => const RecordsScreen(initialTab: 0)),
-  const ServiceItem('الأرباح', Icons.trending_up_rounded, Tone.gold),
-  const ServiceItem('قطع الأراضي', Icons.location_on_outlined, Tone.green),
-  const ServiceItem('الاستبيان', Icons.poll_outlined, Tone.blue),
-  const ServiceItem('الزمنيات', Icons.schedule_rounded, Tone.accent),
+  ServiceItem('الأرباح', Icons.trending_up_rounded, Tone.gold, (_) => const GenericServiceScreen(title: 'الأرباح', icon: Icons.trending_up_rounded)),
+  ServiceItem('قطع الأراضي', Icons.location_on_outlined, Tone.green, (_) => const GenericServiceScreen(title: 'قطع الأراضي', icon: Icons.location_on_outlined)),
+  ServiceItem('الاستبيان', Icons.poll_outlined, Tone.blue, (_) => const GenericServiceScreen(title: 'الاستبيان', icon: Icons.poll_outlined)),
+  ServiceItem('الزمنيات', Icons.schedule_rounded, Tone.accent, (_) => const GenericServiceScreen(title: 'الزمنيات', icon: Icons.schedule_rounded)),
 ];
 
 void openService(BuildContext context, ServiceItem s) {

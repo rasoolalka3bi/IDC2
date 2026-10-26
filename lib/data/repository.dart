@@ -34,4 +34,7 @@ abstract class Repository {
   Future<HousingPoints> housingPoints();
   Future<List<Course>> courses();
   Future<List<ThanksLetter>> thanksLetters();
+
+  /// محتوى خدمة لا تحتاج تصميمًا خاصًا (الأرباح، قطع الأراضي، الاستبيان، الزمنيات).
+  Future<ServicePage> servicePage(String service);
 }

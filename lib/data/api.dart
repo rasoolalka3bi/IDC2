@@ -376,4 +376,19 @@ class ApiRepository implements Repository {
     if (days.isEmpty) throw const ApiException('لا توجد بيانات حضور لهذا الشهر');
     return (days.keys.toList()..sort()).map((d) => days[d]!).toList();
   }
+
+  @override
+  Future<ServicePage> servicePage(String service) async {
+    final page = await _scrape(service);
+    // يُحذف عنوان الصفحة المكرر لأن شاشة التطبيق تعرضه في شريطها.
+    String norm(String s) => s.replaceAll(RegExp('[أإآ]'), 'ا').replaceFirst(RegExp('^ال'), '').trim();
+    final title = norm(service);
+    final lines = '${page['text'] ?? ''}'
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty && norm(l) != title)
+        .toList();
+    final images = page['images'] is List ? (page['images'] as List).map((e) => '$e').toList() : <String>[];
+    return ServicePage(lines, images);
+  }
 }

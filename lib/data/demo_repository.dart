@@ -200,4 +200,10 @@ class DemoRepository implements Repository {
       ThanksLetter('373', DateTime(2026, 1, 29), ''),
     ];
   }
+
+  @override
+  Future<ServicePage> servicePage(String service) async {
+    await Future.delayed(_delay);
+    return const ServicePage(['تُعرض هنا بيانات الخدمة من خادم الشركة بعد تسجيل الدخول برقمك الوظيفي.'], []);
+  }
 }

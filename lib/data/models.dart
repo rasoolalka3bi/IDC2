@@ -318,3 +318,11 @@ class ThanksLetter {
   final String details;
   const ThanksLetter(this.number, this.date, this.details);
 }
+
+/// صفحة خدمة عامة من خادم الشركة: نصوصها وصورها، مثل الاستبيان وقطع الأراضي.
+class ServicePage {
+  final List<String> lines;
+  final List<String> images;
+  const ServicePage(this.lines, this.images);
+  bool get isEmpty => lines.isEmpty && images.isEmpty;
+}

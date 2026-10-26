@@ -195,6 +195,8 @@ class ScrapeScripts {
       return [].map.call(tr.querySelectorAll('th,td'),function(td){return (td.innerText||td.textContent||'').trim();});
     });
   });
-  return JSON.stringify({tables:tables, text:(document.body.innerText||'')});
+  var images=[].filter.call(document.querySelectorAll('img'),function(i){return (i.naturalWidth||i.width)>=200;})
+    .map(function(i){return i.src;});
+  return JSON.stringify({tables:tables, images:images, text:(document.body.innerText||'')});
 })();''';
 }
