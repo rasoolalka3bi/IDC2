@@ -14,7 +14,7 @@ class _FakeEgate implements HttpClientAdapter {
   var csrf = 0;
 
   String page(int y, int m) {
-    final day = (int d, String inner) => '<td><span>$d</span>$inner</td>';
+    String day(int d, String inner) => '<td><span>$d</span>$inner</td>';
     final times = '<table><!--<tr><th><span>د</span></th></tr>--><tbody><tr><td>7:25</td></tr><tr><td>-:-</td></tr></tbody></table>';
     return '<html><body><form name="ss" method="post" action="/application/v2/api/egate/monthly_attends.php">'
         '<input type="hidden" name="csrf_token" value="tok${++csrf}"><input type="hidden" name="eid_n" value="749044">'
