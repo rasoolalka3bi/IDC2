@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 /// يقرأ بيانات صفحات خادم الشركة بمتصفح مخفي ليعرضها التطبيق بتصميمه،
-/// لأن الخدمات لا تتوفر إلا كصفحات ويب. يمكن تشغيل أكثر من مهمة معًا،
+/// لأن الخدمات لا تتوفر إلا كصفحات ويب. تعمل المهام واحدة تلو الأخرى كما
+/// يتصفح الموظف، لأن صفحات الخادم تتشارك جلسة واحدة وتتعارض إن فُتحت معًا.
 /// ويُحفظ عنوان صفحة كل خدمة بعد أول فتح لتُفتح مباشرة دون المرور بالقائمة.
 class WebScraper {
   WebScraper._();
@@ -18,18 +19,33 @@ class WebScraper {
   void _add(WebViewController c) => controllers.value = [...controllers.value, c];
   void _remove(WebViewController c) => controllers.value = controllers.value.where((e) => e != c).toList();
 
+  Future<void> _queue = Future.value();
+
   /// يفتح صفحة الخدمة [service] من قائمة الخدمات [menu] (أو من عنوانها
   /// المحفوظ)، ثم ينفذ [more] بالترتيب ويعيد نتيجة [extract] بعد فك JSON.
-  Future<Object?> service(Uri menu, String service, {List<String> more = const [], required String extract}) async {
-    final known = _pages[service];
-    if (known != null) {
-      try {
-        final out = await _run(Uri.parse(known), more, extract);
-        if (out is Map && '${out['text'] ?? ''}'.trim().isNotEmpty) return out;
-      } catch (_) {}
-      _pages.remove(service);
-    }
-    return _run(menu, [ScrapeScripts.click(service), ...more], extract, rememberAs: service);
+  /// إن لم تحقق نتيجة العنوان المحفوظ [valid] تُفتح من القائمة من جديد،
+  /// لأن بعض الصفحات لا تعمل كاملة إلا إذا فُتحت من القائمة.
+  Future<Object?> service(
+    Uri menu,
+    String service, {
+    List<String> more = const [],
+    required String extract,
+    bool Function(Map page)? valid,
+  }) {
+    final job = _queue.then((_) async {
+      bool good(Object? out) => out is Map && '${out['text'] ?? ''}'.trim().isNotEmpty && (valid == null || valid(out));
+      final known = _pages[service];
+      if (known != null) {
+        try {
+          final out = await _run(Uri.parse(known), more, extract);
+          if (good(out)) return out;
+        } catch (_) {}
+        _pages.remove(service);
+      }
+      return _run(menu, [ScrapeScripts.click(service), ...more], extract, rememberAs: service);
+    });
+    _queue = job.then((_) {}, onError: (_) {});
+    return job;
   }
 
   Future<Object?> _run(Uri url, List<String> actions, String extract, {String? rememberAs}) async {
@@ -158,6 +174,14 @@ class ScrapeScripts {
   return 'no';
 })();''';
 
+  /// نص الصفحة مع نص إطاراتها الداخلية.
+  static const _allText = r'''function all(){
+    var t=document.body ? (document.body.innerText||'') : '';
+    var fs=document.querySelectorAll('iframe,frame');
+    for(var i=0;i<fs.length;i++){ try{ var d=fs[i].contentDocument; if(d&&d.body) t+='\n'+(d.body.innerText||''); }catch(e){} }
+    return t;
+  }''';
+
   static const _calendarRe = r'/(الأحد|الاحد|السبت|الخميس|الاثنين|الإثنين)/';
 
   /// ينتظر ظهور تقويم الحضور (أسماء أيام الأسبوع) حتى [maxPolls] محاولة
@@ -166,7 +190,8 @@ class ScrapeScripts {
   static String waitForCalendar(int maxPolls) =>
       '''
 (function(){
-  var t=document.body ? (document.body.innerText||'') : '';
+  $_allText
+  var t=all();
   var w=window.__idcWait=(window.__idcWait||0)+1;
   var has=$_calendarRe.test(t);
   var changed=window.__idcBefore===undefined || t!==window.__idcBefore;
@@ -194,7 +219,8 @@ class ScrapeScripts {
     for(var j=0;j<s.options.length;j++){ if(parseInt(s.options[j].text,10)>1900) hasYear=true; }
     pick(s, hasYear ? $year : $month);
   }
-  var text=(document.body.innerText||'');
+  $_allText
+  var text=all();
   if(!changed && $_calendarRe.test(text)) return 'same';
   window.__idcBefore=text; window.__idcWait=0;
   var btns=document.querySelectorAll('button,input[type=submit],input[type=button],a');
@@ -220,6 +246,19 @@ class ScrapeScripts {
       try{var cv=document.createElement('canvas'); cv.width=i.naturalWidth; cv.height=i.naturalHeight;
         cv.getContext('2d').drawImage(i,0,0); return cv.toDataURL('image/jpeg',0.92);}catch(e){return i.src;}
     });
-  return JSON.stringify({tables:tables, images:images, text:(document.body.innerText||'')});
+  // نص الإطارات الداخلية من الموقع نفسه يُضاف إلى نص الصفحة.
+  var text=(document.body.innerText||'');
+  [].forEach.call(document.querySelectorAll('iframe,frame'),function(f){
+    try{ var d=f.contentDocument; if(d&&d.body) text+='\\n'+(d.body.innerText||d.body.textContent||''); }catch(e){}
+  });
+  // معلومات تشخيصية تظهر في «التفاصيل» عند تعذر القراءة.
+  var info='URL: '+location.pathname+location.search.replace(/token=[^&]*/,'token=…');
+  [].forEach.call(document.querySelectorAll('iframe,frame,form'),function(f){
+    info+='\\n'+f.tagName+': '+(f.src||f.action||'')+' '+(f.target||'');
+  });
+  [].forEach.call(document.scripts,function(sc){
+    info+='\\nSCRIPT: '+(sc.src ? sc.src : (sc.text||'').replace(/\\s+/g,' ').substring(0,1500));
+  });
+  return JSON.stringify({tables:tables, images:images, text:text, info:info.substring(0,6000)});
 })();''';
 }

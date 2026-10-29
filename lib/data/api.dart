@@ -289,10 +289,16 @@ class ApiRepository implements Repository {
   @override
   bool get hasNativeServices => true;
 
-  Future<Map> _scrape(String service, {List<String> more = const []}) async {
+  Future<Map> _scrape(String service, {List<String> more = const [], bool Function(Map page)? valid}) async {
     final Object? out;
     try {
-      out = await WebScraper.instance.service(servicesPage(), service, more: more, extract: ScrapeScripts.extract);
+      out = await WebScraper.instance.service(
+        servicesPage(),
+        service,
+        more: more,
+        extract: ScrapeScripts.extract,
+        valid: valid,
+      );
     } catch (_) {
       throw const ApiException('تعذر الوصول للخادم، تأكد من الاتصال بالإنترنت');
     }
@@ -356,11 +362,12 @@ class ApiRepository implements Repository {
       ScrapeScripts.attendanceMonth(year, month),
       ScrapeScripts.waitForCalendar(50),
     ];
-    var page = await _scrape('الحضور', more: steps);
+    bool hasCalendar(Map p) => ScrapeParsers.attendance('${p['text'] ?? ''}', year, month).isNotEmpty;
+    var page = await _scrape('الحضور', more: steps, valid: hasCalendar);
     var days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
     // محاولة ثانية تلقائية إن لم يكتمل تحميل التقويم في الأولى.
     if (days.isEmpty) {
-      page = await _scrape('الحضور', more: steps);
+      page = await _scrape('الحضور', more: steps, valid: hasCalendar);
       days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
     }
     if (days.isEmpty) throw ApiException('لا توجد بيانات حضور لهذا الشهر', _pageDetails(page));
@@ -389,8 +396,10 @@ class ApiRepository implements Repository {
 
   /// مقتطف من الصفحة يظهر في «التفاصيل» حين يتعذر تفسيرها.
   static String _pageDetails(Map page) {
-    final t = '${page['text'] ?? ''}'.replaceAll(RegExp(r'\n+'), ' | ');
-    return t.length > 1500 ? t.substring(0, 1500) : t;
+    var t = '${page['text'] ?? ''}'.replaceAll(RegExp(r'\n+'), ' | ');
+    if (t.length > 1500) t = t.substring(0, 1500);
+    final info = '${page['info'] ?? ''}';
+    return info.isEmpty ? t : '$t\n\n$info';
   }
 
   @override
