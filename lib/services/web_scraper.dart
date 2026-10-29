@@ -59,7 +59,7 @@ class WebScraper {
         finished = Completer();
         var res = _text(await c.runJavaScriptReturningResult(actions[i]));
         // خطوة انتظار: تُعاد حتى يظهر المطلوب أو تنتهي المهلة ثم يُكمل.
-        for (var t = 0; res.contains('retry') && t < 40; t++) {
+        for (var t = 0; res.contains('retry') && t < 60; t++) {
           await Future.delayed(const Duration(milliseconds: 500));
           try {
             res = _text(await c.runJavaScriptReturningResult(actions[i]));
@@ -158,27 +158,45 @@ class ScrapeScripts {
   return 'no';
 })();''';
 
-  /// يختار السنة والشهر في صفحة الحضور ثم يضغط «عرض» دائمًا، لأن التقويم
-  /// لا يظهر إلا بعد الضغط. يُحفظ نص الصفحة قبل الضغط ليُعرف تغيّره.
+  static const _calendarRe = r'/(الأحد|الاحد|السبت|الخميس|الاثنين|الإثنين)/';
+
+  /// ينتظر ظهور تقويم الحضور (أسماء أيام الأسبوع) حتى [maxPolls] محاولة
+  /// كل نصف ثانية. بعد الضغط على «عرض» ينتظر تغيّر الصفحة أيضًا، ويقبلها
+  /// كما هي بعد ثلاث ثوانٍ إن كان التقويم ظاهرًا ولم يتغير (الشهر نفسه).
+  static String waitForCalendar(int maxPolls) =>
+      '''
+(function(){
+  var t=document.body ? (document.body.innerText||'') : '';
+  var w=window.__idcWait=(window.__idcWait||0)+1;
+  var has=$_calendarRe.test(t);
+  var changed=window.__idcBefore===undefined || t!==window.__idcBefore;
+  if((has && (changed || w>6)) || w>=$maxPolls){ window.__idcWait=0; return 'same'; }
+  return 'retry';
+})();''';
+
+  /// يختار السنة والشهر في صفحة الحضور. الصفحة تعرض الشهر الحالي فور
+  /// فتحها، فلا يُضغط «عرض» إلا إذا طُلب شهر آخر أو لم يظهر التقويم.
   static String attendanceMonth(int year, int month) =>
       '''
 (function(){
-  var sels=document.querySelectorAll('select');
+  var sels=document.querySelectorAll('select'), changed=false;
   function pick(sel, v){
     for(var i=0;i<sel.options.length;i++){
       var o=sel.options[i];
       if(parseInt(o.value,10)===v || parseInt(o.text,10)===v){
-        sel.selectedIndex=i; sel.dispatchEvent(new Event('change',{bubbles:true})); return true;
+        if(sel.selectedIndex!==i){ sel.selectedIndex=i; changed=true; sel.dispatchEvent(new Event('change',{bubbles:true})); }
+        return;
       }
     }
-    return false;
   }
   for(var i=0;i<sels.length;i++){
     var s=sels[i], hasYear=false;
     for(var j=0;j<s.options.length;j++){ if(parseInt(s.options[j].text,10)>1900) hasYear=true; }
     pick(s, hasYear ? $year : $month);
   }
-  window.__idcBefore=(document.body.innerText||'');
+  var text=(document.body.innerText||'');
+  if(!changed && $_calendarRe.test(text)) return 'same';
+  window.__idcBefore=text; window.__idcWait=0;
   var btns=document.querySelectorAll('button,input[type=submit],input[type=button],a');
   for(var k=0;k<btns.length;k++){
     var t=(btns[k].innerText||btns[k].value||'').trim();
@@ -186,15 +204,6 @@ class ScrapeScripts {
   }
   var f=document.querySelector('form'); if(f){ f.submit(); return 'ok'; }
   return 'same';
-})();''';
-
-  /// ينتظر ظهور تقويم الحضور (أسماء أيام الأسبوع) بعد الضغط على «عرض»،
-  /// سواء فُتحت صفحة جديدة أو حُدّث جزء من الصفحة نفسها.
-  static const waitForCalendar = '''
-(function(){
-  var t=document.body ? (document.body.innerText||'') : '';
-  if(window.__idcBefore!==undefined && t===window.__idcBefore) return 'retry';
-  return /(الأحد|الاحد|السبت|الخميس|الاثنين|الإثنين)/.test(t) ? 'same' : 'retry';
 })();''';
 
   /// يجمع الجداول ونص الصفحة كما هي ليفسرها التطبيق.

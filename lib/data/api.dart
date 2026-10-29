@@ -350,8 +350,19 @@ class ApiRepository implements Repository {
 
   @override
   Future<List<AttendanceDay>> attendance(int year, int month) => _cached('attendance-$year-$month', () async {
-    final page = await _scrape('الحضور', more: [ScrapeScripts.attendanceMonth(year, month), ScrapeScripts.waitForCalendar]);
-    final days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
+    // التقويم يُرسم بعد فتح الصفحة، فيُنتظر ظهوره قبل اختيار الشهر وبعده.
+    final steps = [
+      ScrapeScripts.waitForCalendar(16),
+      ScrapeScripts.attendanceMonth(year, month),
+      ScrapeScripts.waitForCalendar(50),
+    ];
+    var page = await _scrape('الحضور', more: steps);
+    var days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
+    // محاولة ثانية تلقائية إن لم يكتمل تحميل التقويم في الأولى.
+    if (days.isEmpty) {
+      page = await _scrape('الحضور', more: steps);
+      days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
+    }
     if (days.isEmpty) throw ApiException('لا توجد بيانات حضور لهذا الشهر', _pageDetails(page));
     return days;
   });
@@ -367,9 +378,12 @@ class ApiRepository implements Repository {
     final f = load();
     _cache[key] = (DateTime.now(), f);
     // الفشل لا يُحفظ حتى تعيد المحاولة التالية الطلب من جديد.
-    f.then((_) {}, onError: (_) {
-      _cache.remove(key);
-    });
+    f.then(
+      (_) {},
+      onError: (_) {
+        _cache.remove(key);
+      },
+    );
     return f;
   }
 
