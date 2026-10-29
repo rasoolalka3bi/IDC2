@@ -26,6 +26,32 @@ class ScrapeParsers {
       .replaceAll('&nbsp;', ' ')
       .replaceAll('&amp;', '&');
 
+  /// جداول صفحة HTML: لكل جدول صفوفه، ولكل صف نص خلاياه.
+  static List<List<List<String>>> tables(String html) {
+    final clean = html.replaceAll(RegExp(r'<!--.*?-->', dotAll: true), ' ');
+    String cell(String s) => htmlText(s).replaceAll(RegExp(r'\s+'), ' ').trim();
+    return [
+      for (final t in RegExp(r'<table\b.*?</table>', dotAll: true, caseSensitive: false).allMatches(clean))
+        [
+          for (final r in RegExp(r'<tr\b.*?</tr>', dotAll: true, caseSensitive: false).allMatches(t[0]!))
+            [
+              for (final c in RegExp(
+                r'<t[hd]\b[^>]*>(.*?)</t[hd]>',
+                dotAll: true,
+                caseSensitive: false,
+              ).allMatches(r[0]!))
+                cell(c[1]!),
+            ],
+        ],
+    ];
+  }
+
+  /// روابط صور الصفحة كاملة، دون أيقونة التحميل.
+  static List<String> images(String html, Uri base) => [
+    for (final m in RegExp(r'''<img\b[^>]*\bsrc=["']([^"']+)["']''', caseSensitive: false).allMatches(html))
+      if (!m[1]!.contains('loading-icon')) base.resolve(m[1]!.replaceAll('&amp;', '&')).toString(),
+  ];
+
   /// رمز الحماية في نموذج صفحة الخادم، ويلزم إرساله مع طلب شهر آخر.
   static String? csrf(String html) {
     final input = RegExp(r'<input[^>]*csrf_token[^>]*>', caseSensitive: false).firstMatch(html)?[0];

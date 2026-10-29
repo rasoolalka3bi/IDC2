@@ -337,9 +337,49 @@ class ApiRepository implements Repository {
 
   static String _clean(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  // صفحات الخدمات تُرسم كاملة على الخادم ويكفي لفتحها رقم الموظف والرمز،
+  // فتُطلب مباشرة وتُقرأ دون متصفح. وإن لم تأتِ بالبيانات المتوقعة تُقرأ
+  // بالمتصفح المخفي كما في السابق.
+  static const _servicePages = {
+    'الدورات': 'train.php',
+    'التشكرات': 'appreciation.php',
+    'نقاطي': 'points.php',
+    'الأرباح': 'company_profits.php',
+    'الاستبيان': 'poll.php',
+    'الزمنيات': 'coming_soon.php',
+  };
+
+  Future<Map> _direct(String file) async {
+    final url = '${Endpoints.base}egate/$file?eid=$_userId&token=${Uri.encodeQueryComponent(_token)}';
+    final html = await _egate(url);
+    final body = html.replaceAll(RegExp(r'<head\b.*?</head>', dotAll: true, caseSensitive: false), ' ');
+    return {
+      'tables': ScrapeParsers.tables(body),
+      'images': ScrapeParsers.images(body, Uri.parse(url)),
+      'text': ScrapeParsers.htmlText(body).split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).join('\n'),
+    };
+  }
+
+  Future<Map> _page(String service, {bool Function(Map page)? valid}) async {
+    final file = _servicePages[service];
+    if (file != null) {
+      try {
+        final page = await _direct(file);
+        if ('${page['text']}'.trim().isNotEmpty && (valid == null || valid(page))) return page;
+      } catch (_) {}
+    }
+    return _scrape(service, valid: valid);
+  }
+
+  static bool Function(Map) _hasTable(String header) => (page) {
+    final tables = page['tables'];
+    return tables is List &&
+        tables.any((t) => t is List && t.isNotEmpty && t.first is List && (t.first as List).join(' ').contains(header));
+  };
+
   @override
   Future<List<Course>> courses() => _cached('courses', () async {
-    final page = await _scrape('الدورات');
+    final page = await _page('الدورات', valid: _hasTable('الدورة'));
     return [
       for (final r in _table(page, (h) => h.contains('الدورة')))
         if (r.isNotEmpty)
@@ -353,7 +393,7 @@ class ApiRepository implements Repository {
 
   @override
   Future<List<ThanksLetter>> thanksLetters() => _cached('thanks', () async {
-    final page = await _scrape('التشكرات');
+    final page = await _page('التشكرات', valid: _hasTable('الكتاب'));
     return [
       for (final r in _table(page, (h) => h.contains('الكتاب')))
         if (r.isNotEmpty)
@@ -363,7 +403,7 @@ class ApiRepository implements Repository {
 
   @override
   Future<HousingPoints> housingPoints() => _cached('points', () async {
-    final page = await _scrape('نقاطي', valid: (p) => ScrapeParsers.points('${p['text'] ?? ''}') != null);
+    final page = await _page('نقاطي', valid: (p) => ScrapeParsers.points('${p['text'] ?? ''}') != null);
     return ScrapeParsers.points('${page['text'] ?? ''}') ??
         (throw ApiException('تعذر قراءة بيانات النقاط من الخادم', _pageDetails(page)));
   });
@@ -507,7 +547,7 @@ class ApiRepository implements Repository {
 
   @override
   Future<ServicePage> servicePage(String service) async {
-    final page = await _scrape(service);
+    final page = await _page(service);
     // يُحذف عنوان الصفحة المكرر لأن شاشة التطبيق تعرضه في شريطها.
     String norm(String s) => s.replaceAll(RegExp('[أإآ]'), 'ا').replaceFirst(RegExp('^ال'), '').trim();
     final title = norm(service);
