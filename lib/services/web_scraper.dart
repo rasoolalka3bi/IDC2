@@ -117,7 +117,12 @@ class WebScraper {
     return null;
   }
 
+  /// رابط صفحة الخدمة المباشر إن عُرف من قائمة الخدمات.
+  String? urlFor(String service) => _known(service);
+
   /// يحفظ روابط كل الخدمات من صفحة القائمة، لتُفتح كل خدمة بعدها مباشرة.
+  Future<void> harvest(WebViewController c) => _harvest(c);
+
   Future<void> _harvest(WebViewController c) async {
     try {
       final links = _decode(await c.runJavaScriptReturningResult(ScrapeScripts.links));
@@ -286,6 +291,13 @@ class ScrapeScripts {
     if(t && h.indexOf('http')===0 && h.indexOf('#')<0 && h!==location.href) out.push([t,h]);
   });
   return JSON.stringify(out);
+})();''';
+
+  /// مصدر الصفحة كاملًا مع إخفاء رمز الدخول، ليرسله المستخدم عند الحاجة.
+  static const source = r'''
+(function(){
+  var h=document.documentElement.outerHTML;
+  return (location.pathname+'\n'+h).replace(/token=[^&"'\s<]*/g,'token=…');
 })();''';
 
   /// نص الصفحة مع نص إطاراتها الداخلية.

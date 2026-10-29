@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -72,7 +75,32 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
           return NavigationDecision.prevent;
         },
       ))
-      ..loadRequest(widget.url ?? state.repo.servicesPage());
+      ..loadRequest(_start(state));
+  }
+
+  /// تُفتح الخدمة برابطها المباشر إن عُرف، وإلا من قائمة الخدمات.
+  Uri _start(AppState state) {
+    if (widget.url != null) return widget.url!;
+    final name = widget.serviceName;
+    final direct = name == null ? null : WebScraper.instance.urlFor(name);
+    if (direct != null) {
+      _opening = true;
+      return Uri.parse(direct);
+    }
+    return state.repo.servicesPage();
+  }
+
+  /// ينسخ مصدر الصفحة، ليُعرف منه كيف تجلب الصفحة بياناتها من الخادم.
+  Future<void> _copySource() async {
+    final r = await _web?.runJavaScriptReturningResult(ScrapeScripts.source);
+    var text = '$r';
+    if (text.startsWith('"')) {
+      try {
+        text = jsonDecode(text) as String;
+      } catch (_) {}
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) showMessage(context, 'نُسخ مصدر الصفحة، أرسله في المحادثة');
   }
 
   /// تفتح صفحة الخدمة من قائمة الخدمات بالضغط على رابطها، لأن الخادم لا
@@ -88,6 +116,8 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
       if (mounted && !_ready) setState(() => _ready = true);
       return;
     }
+    final web = _web;
+    if (web != null) await WebScraper.instance.harvest(web);
     final res = await _web?.runJavaScriptReturningResult(ScrapeScripts.click(name));
     final ok = '$res'.contains('ok');
     if (!mounted) return;
@@ -145,6 +175,8 @@ class _ServicesWebScreenState extends State<ServicesWebScreen> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
+          if (web != null && widget.serviceName != null)
+            IconButton(onPressed: _copySource, icon: const Icon(Icons.code_rounded), tooltip: 'نسخ مصدر الصفحة'),
           if (web != null) IconButton(onPressed: web.reload, icon: const Icon(Icons.refresh_rounded), tooltip: 'تحديث'),
           const SizedBox(width: 8),
         ],
