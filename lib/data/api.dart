@@ -295,7 +295,12 @@ class ApiRepository implements Repository {
   @override
   bool get hasNativeServices => true;
 
-  Future<Map> _scrape(String service, {List<String> more = const [], bool Function(Map page)? valid}) async {
+  Future<Map> _scrape(
+    String service, {
+    List<String> more = const [],
+    bool Function(Map page)? valid,
+    bool keep = false,
+  }) async {
     final Object? out;
     try {
       out = await WebScraper.instance.service(
@@ -304,6 +309,7 @@ class ApiRepository implements Repository {
         more: more,
         extract: ScrapeScripts.extract,
         valid: valid,
+        keep: keep,
       );
     } catch (_) {
       throw const ApiException('تعذر الوصول للخادم، تأكد من الاتصال بالإنترنت');
@@ -364,16 +370,16 @@ class ApiRepository implements Repository {
   Future<List<AttendanceDay>> attendance(int year, int month) => _cached('attendance-$year-$month', () async {
     // التقويم يُرسم بعد فتح الصفحة، فيُنتظر ظهوره قبل اختيار الشهر وبعده.
     final steps = [
-      ScrapeScripts.waitForCalendar(16),
+      ScrapeScripts.waitForCalendar(8000),
       ScrapeScripts.attendanceMonth(year, month),
-      ScrapeScripts.waitForCalendar(50),
+      ScrapeScripts.waitForCalendar(25000),
     ];
     bool hasCalendar(Map p) => ScrapeParsers.attendance('${p['text'] ?? ''}', year, month).isNotEmpty;
-    var page = await _scrape('الحضور', more: steps, valid: hasCalendar);
+    var page = await _scrape('الحضور', more: steps, valid: hasCalendar, keep: true);
     var days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
     // محاولة ثانية تلقائية إن لم يكتمل تحميل التقويم في الأولى.
     if (days.isEmpty) {
-      page = await _scrape('الحضور', more: steps, valid: hasCalendar);
+      page = await _scrape('الحضور', more: steps, valid: hasCalendar, keep: true);
       days = ScrapeParsers.attendance('${page['text'] ?? ''}', year, month);
     }
     if (days.isEmpty) throw ApiException('لا توجد بيانات حضور لهذا الشهر', _pageDetails(page));

@@ -21,34 +21,79 @@ class WebScraper {
 
   Future<void> _queue = Future.value();
 
-  /// تُنسى الروابط المحفوظة عند تغيير الحساب لأنها تحمل رمز دخوله.
-  void reset() => _pages.clear();
+  /// صفحات تبقى مفتوحة بعد قراءتها (مثل الحضور) ليكون التنقل فيها فوريًا.
+  final _kept = <String, _Tab>{};
+
+  /// تُنسى الروابط والصفحات المفتوحة عند تغيير الحساب لأنها تحمل رمز دخوله.
+  void reset() {
+    _pages.clear();
+    for (final t in _kept.values.toList()) {
+      _drop(t);
+    }
+  }
 
   /// يفتح صفحة الخدمة [service] من قائمة الخدمات [menu] (أو من عنوانها
   /// المحفوظ)، ثم ينفذ [more] بالترتيب ويعيد نتيجة [extract] بعد فك JSON.
   /// إن لم تحقق نتيجة العنوان المحفوظ [valid] تُفتح من القائمة من جديد،
-  /// لأن بعض الصفحات لا تعمل كاملة إلا إذا فُتحت من القائمة.
+  /// لأن بعض الصفحات لا تعمل كاملة إلا إذا فُتحت من القائمة. ومع [keep]
+  /// تبقى الصفحة مفتوحة دقائق، فتُنفذ الطلبات التالية عليها مباشرة.
   Future<Object?> service(
     Uri menu,
     String service, {
     List<String> more = const [],
     required String extract,
     bool Function(Map page)? valid,
+    bool keep = false,
   }) {
+    final key = _norm(service);
     final job = _queue.then((_) async {
       bool good(Object? out) => out is Map && '${out['text'] ?? ''}'.trim().isNotEmpty && (valid == null || valid(out));
+      Object? finish(_Tab t, Object? out) {
+        if (keep && good(out)) {
+          _hold(key, t);
+        } else {
+          _drop(t);
+        }
+        return out;
+      }
+
+      final open = keep ? _kept[key] : null;
+      if (open != null) {
+        open.idle?.cancel();
+        try {
+          final out = await _act(open, more, extract);
+          if (good(out)) return finish(open, out);
+        } catch (_) {}
+        _drop(open);
+      }
       final known = _known(service);
       if (known != null) {
         try {
-          final out = await _run(Uri.parse(known), more, extract);
-          if (good(out)) return out;
+          final (t, out) = await _open(Uri.parse(known), more, extract);
+          if (good(out)) return finish(t, out);
+          _drop(t);
         } catch (_) {}
-        _pages.remove(_norm(service));
+        _pages.remove(key);
       }
-      return _run(menu, [ScrapeScripts.click(service), ...more], extract, rememberAs: service);
+      final (t, out) = await _open(menu, [ScrapeScripts.click(service), ...more], extract, rememberAs: service);
+      return finish(t, out);
     });
     _queue = job.then((_) {}, onError: (_) {});
     return job;
+  }
+
+  void _hold(String key, _Tab t) {
+    final old = _kept[key];
+    if (old != null && old != t) _drop(old);
+    _kept[key] = t;
+    t.idle?.cancel();
+    t.idle = Timer(const Duration(minutes: 3), () => _drop(t));
+  }
+
+  void _drop(_Tab t) {
+    t.idle?.cancel();
+    _kept.removeWhere((_, v) => v == t);
+    _remove(t.c);
   }
 
   /// توحيد اسم الخدمة كما في [ScrapeScripts.click].
@@ -87,57 +132,49 @@ class WebScraper {
     } catch (_) {}
   }
 
-  Future<Object?> _run(Uri url, List<String> actions, String extract, {String? rememberAs}) async {
-    var finished = Completer<void>();
-    var started = false;
-    final c = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (_) => started = true,
-          onPageFinished: (_) {
-            if (!finished.isCompleted) finished.complete();
-          },
-          onWebResourceError: (e) {
-            if ((e.isForMainFrame ?? true) && !finished.isCompleted) {
-              finished.completeError(Exception(e.description));
-            }
-          },
-        ),
-      );
-    _add(c);
+  Future<(_Tab, Object?)> _open(Uri url, List<String> actions, String extract, {String? rememberAs}) async {
+    final t = _Tab();
+    _add(t.c);
     try {
-      await c.loadRequest(url);
-      await finished.future.timeout(const Duration(seconds: 30));
-      if (rememberAs != null) await _harvest(c);
-      for (var i = 0; i < actions.length; i++) {
-        started = false;
-        finished = Completer();
-        var res = _text(await c.runJavaScriptReturningResult(actions[i]));
-        // خطوة انتظار: تُعاد حتى يظهر المطلوب أو تنتهي المهلة ثم يُكمل.
-        for (var t = 0; res.contains('retry') && t < 60; t++) {
-          await Future.delayed(const Duration(milliseconds: 500));
-          try {
-            res = _text(await c.runJavaScriptReturningResult(actions[i]));
-          } catch (_) {} // الصفحة ما زالت تُحمَّل
-        }
-        if (res.contains('retry')) res = 'same';
-        if (res.contains('same')) continue;
-        if (!res.contains('ok')) return null;
-        // ننتظر بدء تحميل صفحة جديدة إن كانت الخطوة تفتح صفحة، وإلا نكمل.
-        for (var t = 0; t < 30 && !started; t++) {
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-        if (started) await finished.future.timeout(const Duration(seconds: 30));
-        if (i == 0 && rememberAs != null) {
-          final now = await c.currentUrl();
-          if (now != null && now != url.toString()) _pages[_norm(rememberAs)] = fixUrl(now);
-        }
-      }
-      return _decode(await c.runJavaScriptReturningResult(extract));
-    } finally {
-      _remove(c);
+      await t.c.loadRequest(url);
+      await t.finished.future.timeout(const Duration(seconds: 30));
+      if (rememberAs != null) await _harvest(t.c);
+      return (t, await _act(t, actions, extract, rememberAs: rememberAs, from: url));
+    } catch (_) {
+      _drop(t);
+      rethrow;
     }
+  }
+
+  Future<Object?> _act(_Tab t, List<String> actions, String extract, {String? rememberAs, Uri? from}) async {
+    final c = t.c;
+    for (var i = 0; i < actions.length; i++) {
+      t.started = false;
+      t.finished = Completer();
+      var res = _text(await c.runJavaScriptReturningResult(actions[i]));
+      // خطوة انتظار: تُعاد حتى يظهر المطلوب أو تنتهي المهلة ثم يُكمل.
+      for (var n = 0; res.contains('retry') && n < 150; n++) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        try {
+          res = _text(await c.runJavaScriptReturningResult(actions[i]));
+        } catch (_) {} // الصفحة ما زالت تُحمَّل
+      }
+      if (res.contains('retry')) res = 'same';
+      if (res.contains('same')) continue;
+      if (!res.contains('ok')) return null;
+      // ننتظر بدء تحميل صفحة جديدة إن كانت الخطوة تفتح صفحة، وإلا نكمل.
+      // مهلة قصيرة: التحديث داخل الصفحة نفسها لا يبدأ تحميلًا، وخطوة الانتظار
+      // التالية تتكفل بالصفحة إن بدأ تحميلها متأخرًا.
+      for (var n = 0; n < 5 && !t.started; n++) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      if (t.started) await t.finished.future.timeout(const Duration(seconds: 30));
+      if (i == 0 && rememberAs != null) {
+        final now = await c.currentUrl();
+        if (now != null && now != from.toString()) _pages[_norm(rememberAs)] = fixUrl(now);
+      }
+    }
+    return _decode(await c.runJavaScriptReturningResult(extract));
   }
 
   static String _text(Object? r) => '$r';
@@ -153,6 +190,32 @@ class WebScraper {
       }
     }
     return v;
+  }
+}
+
+/// متصفح مخفي واحد وحالة تنقله.
+class _Tab {
+  final c = WebViewController();
+  var finished = Completer<void>();
+  var started = false;
+  Timer? idle;
+
+  _Tab() {
+    c
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (_) => started = true,
+          onPageFinished: (_) {
+            if (!finished.isCompleted) finished.complete();
+          },
+          onWebResourceError: (e) {
+            if ((e.isForMainFrame ?? true) && !finished.isCompleted) {
+              finished.completeError(Exception(e.description));
+            }
+          },
+        ),
+      );
   }
 }
 
@@ -235,18 +298,20 @@ class ScrapeScripts {
 
   static const _calendarRe = r'/(الأحد|الاحد|السبت|الخميس|الاثنين|الإثنين)/';
 
-  /// ينتظر ظهور تقويم الحضور (أسماء أيام الأسبوع) حتى [maxPolls] محاولة
-  /// كل نصف ثانية. بعد الضغط على «عرض» ينتظر تغيّر الصفحة أيضًا، ويقبلها
-  /// كما هي بعد ثلاث ثوانٍ إن كان التقويم ظاهرًا ولم يتغير (الشهر نفسه).
-  static String waitForCalendar(int maxPolls) =>
+  /// ينتظر ظهور تقويم الحضور (أسماء أيام الأسبوع) حتى [maxMs] ملي ثانية.
+  /// بعد الضغط على «عرض» ينتظر تغيّر الصفحة وثباتها، ويقبلها كما هي بعد
+  /// ثلاث ثوانٍ إن كان التقويم ظاهرًا ولم يتغير (الشهر نفسه).
+  static String waitForCalendar(int maxMs) =>
       '''
 (function(){
   $_allText
-  var t=all();
-  var w=window.__idcWait=(window.__idcWait||0)+1;
+  var t=all(), now=Date.now();
+  if(!window.__idcStart) window.__idcStart=now;
+  var el=now-window.__idcStart;
   var has=$_calendarRe.test(t);
   var changed=window.__idcBefore===undefined || t!==window.__idcBefore;
-  if((has && (changed || w>6)) || w>=$maxPolls){ window.__idcWait=0; return 'same'; }
+  var steady=t===window.__idcLast; window.__idcLast=t;
+  if((has && ((changed && steady) || el>3000)) || el>=$maxMs){ window.__idcStart=0; window.__idcBefore=undefined; return 'same'; }
   return 'retry';
 })();''';
 
@@ -273,7 +338,7 @@ class ScrapeScripts {
   $_allText
   var text=all();
   if(!changed && $_calendarRe.test(text)) return 'same';
-  window.__idcBefore=text; window.__idcWait=0;
+  window.__idcBefore=text; window.__idcStart=0; window.__idcLast=undefined;
   var btns=document.querySelectorAll('button,input[type=submit],input[type=button],a');
   for(var k=0;k<btns.length;k++){
     var t=(btns[k].innerText||btns[k].value||'').trim();
