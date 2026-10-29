@@ -21,6 +21,9 @@ class WebScraper {
 
   Future<void> _queue = Future.value();
 
+  /// تُنسى الروابط المحفوظة عند تغيير الحساب لأنها تحمل رمز دخوله.
+  void reset() => _pages.clear();
+
   /// يفتح صفحة الخدمة [service] من قائمة الخدمات [menu] (أو من عنوانها
   /// المحفوظ)، ثم ينفذ [more] بالترتيب ويعيد نتيجة [extract] بعد فك JSON.
   /// إن لم تحقق نتيجة العنوان المحفوظ [valid] تُفتح من القائمة من جديد،
@@ -34,18 +37,54 @@ class WebScraper {
   }) {
     final job = _queue.then((_) async {
       bool good(Object? out) => out is Map && '${out['text'] ?? ''}'.trim().isNotEmpty && (valid == null || valid(out));
-      final known = _pages[service];
+      final known = _known(service);
       if (known != null) {
         try {
           final out = await _run(Uri.parse(known), more, extract);
           if (good(out)) return out;
         } catch (_) {}
-        _pages.remove(service);
+        _pages.remove(_norm(service));
       }
       return _run(menu, [ScrapeScripts.click(service), ...more], extract, rememberAs: service);
     });
     _queue = job.then((_) {}, onError: (_) {});
     return job;
+  }
+
+  /// توحيد اسم الخدمة كما في [ScrapeScripts.click].
+  static String _norm(String s) => s
+      .replaceAll(RegExp('[أإآا]'), 'ا')
+      .replaceAll(RegExp('[ىي]'), 'ي')
+      .replaceAll(RegExp('[ةه]'), 'ه')
+      .replaceAll(RegExp('[^\u0621-\u064A]'), '');
+
+  /// روابط قائمة الخدمات مكتوبة بـ «&amp;» بدل «&»، فيصل رمز الدخول إلى
+  /// الخادم باسم خاطئ وتظهر الصفحة أحيانًا بلا بيانات.
+  static String fixUrl(String url) => url.replaceAll('&amp;', '&');
+
+  String? _known(String service) {
+    final want = _norm(service);
+    final exact = _pages[want];
+    if (exact != null) return exact;
+    for (final e in _pages.entries) {
+      if (e.key.contains(want) && e.key.length <= want.length + 10) return e.value;
+    }
+    return null;
+  }
+
+  /// يحفظ روابط كل الخدمات من صفحة القائمة، لتُفتح كل خدمة بعدها مباشرة.
+  Future<void> _harvest(WebViewController c) async {
+    try {
+      final links = _decode(await c.runJavaScriptReturningResult(ScrapeScripts.links));
+      if (links is! List) return;
+      for (final l in links) {
+        if (l is List && l.length == 2) {
+          final name = _norm('${l[0]}');
+          final href = '${l[1]}';
+          if (name.isNotEmpty && href.startsWith('http')) _pages.putIfAbsent(name, () => fixUrl(href));
+        }
+      }
+    } catch (_) {}
   }
 
   Future<Object?> _run(Uri url, List<String> actions, String extract, {String? rememberAs}) async {
@@ -70,6 +109,7 @@ class WebScraper {
     try {
       await c.loadRequest(url);
       await finished.future.timeout(const Duration(seconds: 30));
+      if (rememberAs != null) await _harvest(c);
       for (var i = 0; i < actions.length; i++) {
         started = false;
         finished = Completer();
@@ -91,7 +131,7 @@ class WebScraper {
         if (started) await finished.future.timeout(const Duration(seconds: 30));
         if (i == 0 && rememberAs != null) {
           final now = await c.currentUrl();
-          if (now != null && now != url.toString()) _pages[rememberAs] = now;
+          if (now != null && now != url.toString()) _pages[_norm(rememberAs)] = fixUrl(now);
         }
       }
       return _decode(await c.runJavaScriptReturningResult(extract));
@@ -172,6 +212,17 @@ class ScrapeScripts {
     }
   }
   return 'no';
+})();''';
+
+  /// روابط صفحة القائمة: [الاسم، الرابط] لكل رابط إلى صفحة داخل الموقع.
+  static const links = '''
+(function(){
+  var out=[];
+  [].forEach.call(document.querySelectorAll('a[href]'),function(a){
+    var h=a.href||''; var t=(a.innerText||a.textContent||'').trim();
+    if(t && h.indexOf('http')===0 && h.indexOf('#')<0 && h!==location.href) out.push([t,h]);
+  });
+  return JSON.stringify(out);
 })();''';
 
   /// نص الصفحة مع نص إطاراتها الداخلية.

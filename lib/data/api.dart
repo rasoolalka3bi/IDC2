@@ -54,7 +54,13 @@ class ApiRepository implements Repository {
           );
 
   @override
-  void attach(User? user) => _user = user;
+  void attach(User? user) {
+    if (user?.token != _user?.token) {
+      WebScraper.instance.reset();
+      _cache.clear();
+    }
+    _user = user;
+  }
 
   String get _token {
     final t = _user?.token;
@@ -349,7 +355,7 @@ class ApiRepository implements Repository {
 
   @override
   Future<HousingPoints> housingPoints() => _cached('points', () async {
-    final page = await _scrape('نقاطي');
+    final page = await _scrape('نقاطي', valid: (p) => ScrapeParsers.points('${p['text'] ?? ''}') != null);
     return ScrapeParsers.points('${page['text'] ?? ''}') ??
         (throw ApiException('تعذر قراءة بيانات النقاط من الخادم', _pageDetails(page)));
   });
