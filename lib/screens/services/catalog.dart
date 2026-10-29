@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../app/app_state.dart';
 import '../../widgets/common.dart';
+import 'attendance_screen.dart';
 import 'generic_service_screen.dart';
 import 'housing_points_screen.dart';
 import 'records_screen.dart';
@@ -20,9 +21,7 @@ class ServiceItem {
 }
 
 final services = <ServiceItem>[
-  // الحضور يُعرض بصفحة الشركة نفسها لأنها أسرع بكثير من قراءتها وإعادة رسمها.
-  ServiceItem('الحضور', Icons.fingerprint_rounded, Tone.green,
-      (_) => const ServicesWebScreen(title: 'الحضور', serviceName: 'الحضور')),
+  ServiceItem('الحضور', Icons.fingerprint_rounded, Tone.green, (_) => const AttendanceScreen()),
   ServiceItem('نقاطي', Icons.home_work_outlined, Tone.accent, (_) => const HousingPointsScreen()),
   ServiceItem('التشكرات', Icons.workspace_premium_outlined, Tone.gold, (_) => const RecordsScreen(initialTab: 1)),
   ServiceItem('الدورات', Icons.menu_book_rounded, Tone.blue, (_) => const RecordsScreen(initialTab: 0)),
