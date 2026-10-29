@@ -58,6 +58,8 @@ class ApiRepository implements Repository {
     if (user?.token != _user?.token) {
       WebScraper.instance.reset();
       _cache.clear();
+      _egateCookie = null;
+      _egateCsrf = null;
     }
     _user = user;
   }
@@ -368,6 +370,95 @@ class ApiRepository implements Repository {
 
   @override
   Future<List<AttendanceDay>> attendance(int year, int month) => _cached('attendance-$year-$month', () async {
+    try {
+      final days = await _attendanceDirect(year, month);
+      if (days.isNotEmpty) return days;
+    } catch (_) {}
+    return _attendanceScraped(year, month);
+  });
+
+  // صفحة الحضور (egate/monthly_attends.php) تُرسم كاملة على الخادم: تعرض
+  // الشهر الحالي عند فتحها، وغيره بإرسال نموذجها (السنة Y والشهر M مع رمز
+  // الحماية csrf_token ورقم الموظف eid_n). وتعتمد على جلسة تبدأ بفتح قائمة
+  // الخدمات، فتُطلب كلها مباشرة دون متصفح، وهذا أسرع بكثير.
+  String? _egateCookie;
+  String? _egateCsrf;
+
+  Future<String> _egate(String path, {Map<String, String>? form}) async {
+    final url = path.startsWith('http') ? path : '${Endpoints.base}egate/$path';
+    final res = await _dio.request<String>(
+      url,
+      data: form,
+      options: Options(
+        method: form == null ? 'GET' : 'POST',
+        contentType: form == null ? null : Headers.formUrlEncodedContentType,
+        headers: {if (_egateCookie != null) 'Cookie': _egateCookie},
+        followRedirects: false,
+        validateStatus: (s) => s != null && s < 400,
+      ),
+    );
+    final cookies = res.headers['set-cookie'];
+    if (cookies != null && cookies.isNotEmpty) {
+      final jar = <String, String>{
+        for (final c in (_egateCookie ?? '').split('; ').where((c) => c.contains('=')))
+          c.substring(0, c.indexOf('=')): c.substring(c.indexOf('=') + 1),
+      };
+      for (final c in cookies) {
+        final pair = c.split(';').first.trim();
+        final i = pair.indexOf('=');
+        if (i > 0) jar[pair.substring(0, i)] = pair.substring(i + 1);
+      }
+      _egateCookie = jar.entries.map((e) => '${e.key}=${e.value}').join('; ');
+    }
+    final location = res.headers.value('location');
+    if (location != null && (res.statusCode ?? 200) >= 300) {
+      return _egate(Uri.parse(url).resolve(location).toString());
+    }
+    return res.data ?? '';
+  }
+
+  Future<void> _egateQueue = Future.value();
+
+  /// طلبات صفحة الحضور تمر واحدًا تلو الآخر لأنها تتشارك الجلسة ورمز الحماية.
+  Future<List<AttendanceDay>> _attendanceDirect(int year, int month) {
+    final job = _egateQueue.then((_) => _attendanceDirectNow(year, month));
+    _egateQueue = job.then((_) {}, onError: (_) {});
+    return job;
+  }
+
+  Future<List<AttendanceDay>> _attendanceDirectNow(int year, int month) async {
+    final now = DateTime.now();
+    final current = year == now.year && month == now.month;
+    List<AttendanceDay> parse(String html) {
+      _egateCsrf = ScrapeParsers.csrf(html) ?? _egateCsrf;
+      final text = ScrapeParsers.htmlText(html);
+      // لا يُقبل تقويم شهر آخر، كأن يعيد الخادم الشهر الحالي عند رفض الطلب.
+      if (!ScrapeParsers.showsMonth(text, year, month)) return const [];
+      return ScrapeParsers.attendance(text, year, month);
+    }
+
+    Future<List<AttendanceDay>> other() async => parse(
+      await _egate(
+        'monthly_attends.php',
+        form: {'csrf_token': _egateCsrf ?? '', 'eid_n': _userId, 'Y': '$year', 'M': '$month', 'veiw': ''},
+      ),
+    );
+
+    // بجلسة قائمة يكفي طلب واحد للشهر.
+    if (_egateCookie != null && _egateCsrf != null) {
+      final days = current ? parse(await _egate('monthly_attends.php')) : await other();
+      if (days.isNotEmpty) return days;
+    }
+    // جلسة جديدة: قائمة الخدمات ثم صفحة الحضور، ثم الشهر المطلوب إن لم يكن الحالي.
+    _egateCookie = null;
+    _egateCsrf = null;
+    await _egate(servicesPage().toString());
+    final first = parse(await _egate('monthly_attends.php'));
+    if (current) return first;
+    return other();
+  }
+
+  Future<List<AttendanceDay>> _attendanceScraped(int year, int month) async {
     // التقويم يُرسم بعد فتح الصفحة، فيُنتظر ظهوره قبل اختيار الشهر وبعده.
     final steps = [
       ScrapeScripts.waitForCalendar(8000),
@@ -384,7 +475,7 @@ class ApiRepository implements Repository {
     }
     if (days.isEmpty) throw ApiException('لا توجد بيانات حضور لهذا الشهر', _pageDetails(page));
     return days;
-  });
+  }
 
   /// نتائج صفحات الخدمات تُحفظ دقائق قليلة، لأن قراءتها أبطأ من طلبات
   /// الخادم العادية وتطلبها الرئيسية وشاشات الخدمات معًا.

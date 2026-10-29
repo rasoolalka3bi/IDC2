@@ -1,12 +1,45 @@
+import '../app/format.dart';
 import 'models.dart';
 
 /// تفسير نصوص صفحات الخدمات كما يقرؤها المتصفح المخفي. الدوال منفصلة عن
 /// الشبكة حتى يمكن اختبارها بنصوص الصفحات مباشرة.
 class ScrapeParsers {
-  static const _weekdays = ['الاحد', 'الأحد', 'الاثنين', 'الإثنين', 'الثلاثاء', 'الاربعاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  static const _weekdays = [
+    'الاحد',
+    'الأحد',
+    'الاثنين',
+    'الإثنين',
+    'الثلاثاء',
+    'الاربعاء',
+    'الأربعاء',
+    'الخميس',
+    'الجمعة',
+    'السبت',
+  ];
 
-  static List<String> lines(String text) =>
-      text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+  /// نص صفحة HTML كما يقرؤه الإنسان تقريبًا: كل وسم يصبح فاصل سطر، وتُحذف
+  /// التعليقات والسكربتات والتنسيقات.
+  static String htmlText(String html) => html
+      .replaceAll(RegExp(r'<!--.*?-->', dotAll: true), ' ')
+      .replaceAll(RegExp(r'<(script|style)\b.*?</\1>', dotAll: true, caseSensitive: false), ' ')
+      .replaceAll(RegExp(r'<[^>]*>'), '\n')
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&amp;', '&');
+
+  /// رمز الحماية في نموذج صفحة الخادم، ويلزم إرساله مع طلب شهر آخر.
+  static String? csrf(String html) {
+    final input = RegExp(r'<input[^>]*csrf_token[^>]*>', caseSensitive: false).firstMatch(html)?[0];
+    if (input == null) return null;
+    return RegExp(r'''value=["']([^"']*)["']''').firstMatch(input)?[1];
+  }
+
+  /// هل يعرض نص الصفحة الشهر المطلوب؟ (عنوانها مثل «تشرين الاول 2026»)
+  static bool showsMonth(String text, int year, int month) {
+    String norm(String s) => s.replaceAll(RegExp('[أإآ]'), 'ا').replaceAll(RegExp(r'\s+'), ' ');
+    return norm(text).contains(norm('${monthName(month)} $year'));
+  }
+
+  static List<String> lines(String text) => text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
 
   /// التقويم يأتي بعد أسماء أيام الأسبوع: رقم اليوم ثم وقت الدخول ثم وقت
   /// الخروج، و«-:-» تعني عدم وجود بصمة، و N تعني عطلة. تُقرأ الأيام بترتيبها
@@ -29,12 +62,14 @@ class ScrapeParsers {
         final m = time.firstMatch(t)!;
         return '${m[1]}:${m[2]!.padLeft(2, '0')}';
       }).toList();
-      days.add(AttendanceDay(
-        DateTime(year, month, expect - 1),
-        checkIn: times.isNotEmpty ? times[0] : null,
-        checkOut: times.length > 1 ? times[1] : null,
-        holiday: cur.any((t) => t.toUpperCase() == 'N'),
-      ));
+      days.add(
+        AttendanceDay(
+          DateTime(year, month, expect - 1),
+          checkIn: times.isNotEmpty ? times[0] : null,
+          checkOut: times.length > 1 ? times[1] : null,
+          holiday: cur.any((t) => t.toUpperCase() == 'N'),
+        ),
+      );
     }
 
     for (final t in tokens.skip(start)) {
