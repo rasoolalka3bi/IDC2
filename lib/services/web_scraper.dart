@@ -293,11 +293,22 @@ class ScrapeScripts {
   return JSON.stringify(out);
 })();''';
 
-  /// مصدر الصفحة كاملًا مع إخفاء رمز الدخول، ليرسله المستخدم عند الحاجة.
+  /// مختصر مصدر الصفحة مع إخفاء رمز الدخول، ليرسله المستخدم عند الحاجة:
+  /// تُحذف التنسيقات والأيقونات ويُختصر كل جدول إلى صفوفه الأولى، وتبقى
+  /// النماذج والسكربتات التي تكشف كيف تجلب الصفحة بياناتها.
   static const source = r'''
 (function(){
-  var h=document.documentElement.outerHTML;
-  return (location.pathname+'\n'+h).replace(/token=[^&"'\s<]*/g,'token=…');
+  var d=document.documentElement.cloneNode(true);
+  [].forEach.call(d.querySelectorAll('style,link,meta,svg,ion-icon,noscript'),function(e){e.remove();});
+  [].forEach.call(d.querySelectorAll('*'),function(e){e.removeAttribute('style'); e.removeAttribute('class');
+    if(e.tagName==='IMG') e.setAttribute('src',(e.getAttribute('src')||'').substring(0,80));});
+  [].forEach.call(d.querySelectorAll('table'),function(t){
+    var rows=t.querySelectorAll('tr'); for(var i=3;i<rows.length;i++) rows[i].remove();});
+  [].forEach.call(d.querySelectorAll('select'),function(sl){
+    var o=sl.querySelectorAll('option'); for(var i=2;i<o.length;i++) o[i].remove();});
+  var h=d.outerHTML.replace(/\s+/g,' ').replace(/> </g,'><');
+  h=(location.pathname+location.search+'\n'+h).replace(/token=[^&"'\s<]*/g,'token=…');
+  return h.length>12000 ? h.substring(0,12000)+' …' : h;
 })();''';
 
   /// نص الصفحة مع نص إطاراتها الداخلية.
